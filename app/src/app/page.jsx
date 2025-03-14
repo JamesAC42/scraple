@@ -67,13 +67,12 @@ export default function Home() {
 
   // New state variables for game status
   const [isGameFinished, setIsGameFinished] = useState(false);
-  const [hasUsedRestart, setHasUsedRestart] = useState(false);
   const [gameResults, setGameResults] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
 
   const [showFinishPopup, setShowFinishPopup] = useState(false);
-  const [showRestartPopup, setShowRestartPopup] = useState(false);
   const [shareMessage, setShareMessage] = useState('');
+  const [validationError, setValidationError] = useState('');
   const textAreaRef = useRef(null);
 
   const { setActivePopup } = usePopup();
@@ -112,7 +111,6 @@ export default function Home() {
         placedTiles,
         usedTileIds,
         isGameFinished,
-        hasUsedRestart,
         date: new Date().toISOString().split('T')[0], // Store current date in YYYY-MM-DD format
         bonusTilePositions,
         displayDate
@@ -149,7 +147,6 @@ export default function Home() {
             setPlacedTiles({});
             setUsedTileIds([]);
             setIsGameFinished(false);
-            setHasUsedRestart(false);
             setGameResults(null);
             
             // Clear results from localStorage
@@ -167,7 +164,6 @@ export default function Home() {
           setPlacedTiles(parsedState.placedTiles || {});
           setUsedTileIds(parsedState.usedTileIds || []);
           setIsGameFinished(parsedState.isGameFinished || false);
-          setHasUsedRestart(parsedState.hasUsedRestart || false);
           setBonusTilePositions(parsedState.bonusTilePositions || {});
           setDisplayDate(parsedState.displayDate || '');
           
@@ -282,7 +278,7 @@ export default function Home() {
     if (letters.length > 0) {
       saveGameState();
     }
-  }, [letters, placedTiles, usedTileIds, isGameFinished, hasUsedRestart, gameResults, bonusTilePositions, displayDate]);
+  }, [letters, placedTiles, usedTileIds, isGameFinished, gameResults, bonusTilePositions, displayDate]);
   
   const shuffleLetters = () => {
     // Don't allow shuffling if game is finished
@@ -320,29 +316,42 @@ export default function Home() {
     if (isGameFinished) return;
     
     const { active } = event;
-    setActiveTile(active.data.current?.letter);
-    setActiveId(active.id);
+    
+    // Check if we're dragging a tile from the board
+    const isBoardTile = active.id.startsWith('placed-');
+    
+    if (isBoardTile) {
+      // Extract the original tile data from the placed tile
+      const position = active.data.current?.position;
+      if (position) {
+        const cellKey = `${position.row}-${position.col}`;
+        const tileData = placedTiles[cellKey];
+        
+        // Set the active tile data
+        setActiveTile(tileData);
+        
+        // Remove the tile from its current position
+        setPlacedTiles(prev => {
+          const newPlacedTiles = { ...prev };
+          delete newPlacedTiles[cellKey];
+          return newPlacedTiles;
+        });
+      }
+    } else {
+      // Regular tile from the rack
+      setActiveTile(active.data.current?.letter);
+      setActiveId(active.id);
+    }
+    
     setInvalidPlacement(false);
     setIsDragging(true);
+    setValidationError(''); // Clear any validation errors when starting a new drag
     
     // Play suction sound when tile is picked up
     if (suctionSoundRef.current) {
       suctionSoundRef.current.currentTime = 0.1;
       suctionSoundRef.current.play().catch(e => console.log("Audio play error:", e));
     }
-  };
-
-  // Check if a cell has an adjacent tile (horizontally or vertically)
-  const hasAdjacentTile = (row, col) => {
-    // Check all four adjacent cells (up, right, down, left)
-    const adjacentPositions = [
-      `${row-1}-${col}`, // up
-      `${row}-${col+1}`, // right
-      `${row+1}-${col}`, // down
-      `${row}-${col-1}`  // left
-    ];
-    
-    return adjacentPositions.some(pos => placedTiles[pos]);
   };
 
   const handleDragEnd = (event) => {
@@ -360,8 +369,10 @@ export default function Home() {
       return;
     }
     
-    // Check if dropped on tile container (to cancel the drag)
+    // Check if dropped on tile container (to return the tile to the rack)
     if (over.id === 'tile-container') {
+      // If this was a tile from the board, we've already removed it
+      // If it was from the rack, we just need to cancel the drag
       setActiveTile(null);
       setActiveId(null);
       setInvalidPlacement(false);
@@ -369,12 +380,11 @@ export default function Home() {
       return;
     }
     
-    if (active.id.startsWith('tile-') && over.id.startsWith('cell-')) {
-      const tileId = active.id;
-      const tileData = active.data.current?.letter;
+    if (over.id.startsWith('cell-')) {
+      const tileData = activeTile;
       const cellPosition = over.data.current?.position;
       
-      if (cellPosition) {
+      if (cellPosition && tileData) {
         const { row, col } = cellPosition;
         const cellKey = `${row}-${col}`;
         
@@ -387,29 +397,22 @@ export default function Home() {
           return;
         }
         
-        // Check if this is the first tile or if it's adjacent to an existing tile
-        const isFirstTile = Object.keys(placedTiles).length === 0;
-        const isAdjacent = hasAdjacentTile(row, col);
+        // Valid placement - update placed tiles
+        // No need to check for adjacency anymore
+        setPlacedTiles(prev => ({
+          ...prev,
+          [cellKey]: tileData
+        }));
         
-        if (isFirstTile || isAdjacent) {
-          // Valid placement - update placed tiles
-          setPlacedTiles(prev => ({
-            ...prev,
-            [cellKey]: tileData
-          }));
-          
-          // Track used tile IDs
-          setUsedTileIds(prev => [...prev, tileId]);
-          setInvalidPlacement(false);
-          
-          // Play clack sound when tile is placed
-          if (clackSoundRef.current) {
-            clackSoundRef.current.currentTime = 0.2; // Start 100ms into the sound
-            clackSoundRef.current.play().catch(e => console.log("Audio play error:", e));
-          }
-        } else {
-          // Invalid placement - tile must be adjacent to another tile
-          setInvalidPlacement(true);
+        // If this is a new tile from the rack (not a moved tile), track it as used
+        if (activeId && activeId.startsWith('tile-')) {
+          setUsedTileIds(prev => [...prev, activeId]);
+        }
+        
+        // Play clack sound when tile is placed
+        if (clackSoundRef.current) {
+          clackSoundRef.current.currentTime = 0.2; // Start 100ms into the sound
+          clackSoundRef.current.play().catch(e => console.log("Audio play error:", e));
         }
       }
     }
@@ -430,10 +433,67 @@ export default function Home() {
     }),
   };
 
-  const handleConfirm = async () => {
-    // Don't allow finishing if there are no tiles placed
+  // Check if all tiles form a valid pattern (connected horizontally or vertically)
+  const validateTilePlacement = () => {
+    // If no tiles are placed, return false
     if (Object.keys(placedTiles).length === 0) {
-      alert("Please place at least one tile on the board.");
+      setValidationError("Please place at least one tile on the board.");
+      return false;
+    }
+    
+    // Create a grid representation of placed tiles
+    const grid = {};
+    const positions = Object.keys(placedTiles).map(pos => {
+      const [row, col] = pos.split('-').map(Number);
+      grid[pos] = { row, col };
+      return { row, col, pos };
+    });
+    
+    // If only one tile is placed, it's valid
+    if (positions.length === 1) {
+      return true;
+    }
+    
+    // Check if all tiles are connected
+    const visited = new Set();
+    
+    // DFS to find connected tiles
+    const dfs = (pos) => {
+      if (visited.has(pos)) return;
+      visited.add(pos);
+      
+      const [row, col] = pos.split('-').map(Number);
+      
+      // Check all four adjacent positions
+      const adjacentPositions = [
+        `${row-1}-${col}`, // up
+        `${row}-${col+1}`, // right
+        `${row+1}-${col}`, // down
+        `${row}-${col-1}`  // left
+      ];
+      
+      for (const adjPos of adjacentPositions) {
+        if (grid[adjPos]) {
+          dfs(adjPos);
+        }
+      }
+    };
+    
+    // Start DFS from the first tile
+    dfs(positions[0].pos);
+    
+    // If all tiles are visited, they are connected
+    if (visited.size === positions.length) {
+      return true;
+    }
+    
+    setValidationError("All tiles must be connected horizontally or vertically.");
+    return false;
+  };
+
+  const handleConfirm = async () => {
+    // Validate tile placement before proceeding
+    if (!validateTilePlacement()) {
       setShowFinishPopup(false);
       return;
     }
@@ -463,15 +523,6 @@ export default function Home() {
     } finally {
       setIsCalculating(false);
     }
-  }
-
-  const handleRestart = () => {
-    // Mark that the user has used their restart
-    setHasUsedRestart(true);
-    setShowRestartPopup(false);
-    
-    // Reset the game state but keep track of the fact that restart was used
-    resetGame();
   }
 
   // Handle sharing game results
@@ -594,14 +645,6 @@ export default function Home() {
             cancel={() => setShowFinishPopup(false)} />
         )
       }
-      {
-        showRestartPopup && (
-          <Confirm 
-            message="Are you sure you want to start over? You can only do this once per day!" 
-            confirm={handleRestart} 
-            cancel={() => setShowRestartPopup(false)} />
-        )
-      }
       <div className="page">
         <div className="content-container">
           
@@ -637,7 +680,12 @@ export default function Home() {
           <div className={styles.gameState}>
             {invalidPlacement && (
               <div className={styles.errorMessage}>
-                Tiles must be placed adjacent to existing tiles
+                This cell already contains a tile
+              </div>
+            )}
+            {validationError && (
+              <div className={styles.errorMessage}>
+                {validationError}
               </div>
             )}
             {isCalculating && (
@@ -656,14 +704,6 @@ export default function Home() {
             />
 
             <div className={styles.wideControlsContainer}>
-              <div
-                onClick={!isGameFinished && !hasUsedRestart ? () => setShowRestartPopup(true) : undefined}
-                className={`${styles.restartButton} ${(isGameFinished || hasUsedRestart) ? styles.disabledButton : ''}`}>
-                <LiaUndoAltSolid /> 
-                <div className={styles.buttonLabel}>
-                  Start Over
-                </div>
-              </div>
               <div
                 onClick={!isGameFinished ? () => setShowFinishPopup(true) : undefined}
                 className={`${styles.finishButton} ${isGameFinished ? styles.disabledButton : ''}`}>
@@ -748,14 +788,6 @@ export default function Home() {
           </DragOverlay>
 
           <div className={styles.smallControlsContainer}>
-            <div
-              onClick={!isGameFinished && !hasUsedRestart ? () => setShowRestartPopup(true) : undefined}
-              className={`${styles.restartButton} ${(isGameFinished || hasUsedRestart) ? styles.disabledButton : ''}`}>
-              <LiaUndoAltSolid /> 
-              <div className={styles.buttonLabel}>
-                Start Over
-              </div>
-            </div>
             <div
               onClick={!isGameFinished ? () => setShowFinishPopup(true) : undefined}
               className={`${styles.finishButton} ${isGameFinished ? styles.disabledButton : ''}`}>

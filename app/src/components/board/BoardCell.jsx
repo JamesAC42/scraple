@@ -53,7 +53,8 @@ const BoardCell = ({type, id, placedTile, position, isValidTarget, isDragging}) 
             {placedTile && (
                 <Tile 
                     letter={placedTile} 
-                    id={`placed-tile-${position?.row}-${position?.col}`} 
+                    id={`placed-${position?.row}-${position?.col}`} 
+                    position={position}
                 />
             )}
         </div>

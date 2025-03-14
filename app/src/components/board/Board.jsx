@@ -23,24 +23,6 @@ const Board = ({size, bonusTilePositions, placedTiles = {}, isDragging = false})
         return CellTypes.BLANK;
     }
 
-    // Check if a cell is adjacent to any placed tile
-    const isAdjacentToPlacedTile = (row, col) => {
-        // If this is the first tile, any cell is valid
-        if (Object.keys(placedTiles).length === 0) {
-            return true;
-        }
-        
-        // Check all four adjacent positions
-        const adjacentPositions = [
-            `${row-1}-${col}`, // up
-            `${row}-${col+1}`, // right
-            `${row+1}-${col}`, // down
-            `${row}-${col-1}`  // left
-        ];
-        
-        return adjacentPositions.some(pos => placedTiles[pos]);
-    };
-
     return (
         <div className={styles.board}>
             {Array.from({length: size}).map((_, rowIndex) => (
@@ -50,7 +32,9 @@ const Board = ({size, bonusTilePositions, placedTiles = {}, isDragging = false})
                         const cellId = `cell-${rowIndex}-${columnIndex}`;
                         const cellKey = `${rowIndex}-${columnIndex}`;
                         const placedTile = placedTiles[cellKey];
-                        const isValidTarget = isAdjacentToPlacedTile(rowIndex, columnIndex) && !placedTile;
+                        
+                        // All empty cells are valid targets now
+                        const isValidTarget = !placedTile;
                         
                         return (
                             <BoardCell 

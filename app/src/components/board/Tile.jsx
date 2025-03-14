@@ -3,10 +3,10 @@ import TileTypes from "@/types/TileTypes";
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 
-const Tile = ({letter, id}) => {
+const Tile = ({letter, id, position}) => {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: id || `tile-${Math.random()}`,
-        data: { letter }
+        data: { letter, position }
     });
 
     // Improved transform handling for smoother dragging

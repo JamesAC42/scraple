@@ -15,6 +15,9 @@ const HelpPopup = ({ onClose }) => {
                     <p>Words must be at least <span className={styles.bold}>2 letters</span> long.</p>
                 </li>
                 <li>
+                    <p>A valid word cannot contain capital letters, hyphens, spaces, or punctuation.</p>
+                </li>
+                <li>
                     <p>Letters must be adjacent to another letter.</p>
                 </li>
                 <li>
@@ -24,8 +27,6 @@ const HelpPopup = ({ onClose }) => {
                     <p>Points are deducted for invalid words!</p>
                 </li>
             </ul>
-            <p className={styles.center}>Once you place a letter, it cannot be moved.</p>
-            <p className={styles.center}>You get one board reset per game.</p>
             <div className={styles.tileExplanation}>
                 <div className={styles.tileOuter}>  
                     <Tile letter={{letter:"A", points:1}} />
