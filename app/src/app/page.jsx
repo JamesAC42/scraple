@@ -61,6 +61,7 @@ export default function Home() {
   const [usedTileIds, setUsedTileIds] = useState([]);
   const [invalidPlacement, setInvalidPlacement] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [originalPosition, setOriginalPosition] = useState(null);
   const [bonusTilePositions, setBonusTilePositions] = useState({});
   const [displayDate, setDisplayDate] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -327,6 +328,9 @@ export default function Home() {
         const cellKey = `${position.row}-${position.col}`;
         const tileData = placedTiles[cellKey];
         
+        // Store the original position and tile data
+        setOriginalPosition({ cellKey, tileData });
+        
         // Set the active tile data
         setActiveTile(tileData);
         
@@ -344,6 +348,7 @@ export default function Home() {
       // Regular tile from the rack
       setActiveTile(active.data.current?.letter);
       setActiveId(active.id);
+      setOriginalPosition(null); // No original position for rack tiles
     }
     
     setInvalidPlacement(false);
@@ -365,8 +370,18 @@ export default function Home() {
     
     if (!over) {
       // Dropped outside any droppable area
+      if (originalPosition) {
+        // If this was a tile from the board, return it to its original position
+        setPlacedTiles(prev => ({
+          ...prev,
+          [originalPosition.cellKey]: originalPosition.tileData
+        }));
+      }
+      
+      // Reset states
       setActiveTile(null);
       setActiveId(null);
+      setOriginalPosition(null);
       setInvalidPlacement(false);
       setIsDragging(false);
       return;
@@ -394,6 +409,7 @@ export default function Home() {
       // Reset active tile state
       setActiveTile(null);
       setActiveId(null);
+      setOriginalPosition(null);
       setInvalidPlacement(false);
       setIsDragging(false);
       return;
@@ -409,9 +425,18 @@ export default function Home() {
         
         // Check if the cell already has a tile
         if (placedTiles[cellKey]) {
+          // If invalid placement, return the tile to its original position if it was from the board
+          if (originalPosition) {
+            setPlacedTiles(prev => ({
+              ...prev,
+              [originalPosition.cellKey]: originalPosition.tileData
+            }));
+          }
+          
           setInvalidPlacement(true);
           setActiveTile(null);
           setActiveId(null);
+          setOriginalPosition(null);
           setIsDragging(false);
           return;
         }
@@ -438,6 +463,7 @@ export default function Home() {
     
     setActiveTile(null);
     setActiveId(null);
+    setOriginalPosition(null);
     setIsDragging(false);
   };
 
