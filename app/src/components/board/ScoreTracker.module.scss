@@ -1,0 +1,148 @@
+@import "@/styles/mixins.scss";
+
+.scoreTracker {
+  background-color: var(--background);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid #815f4c;
+  box-shadow: 0 0.25rem 0 0 #815f4c;
+  transition: all 0.2s ease;
+  max-height: 12rem;
+  overflow: hidden;
+  margin-top:1rem;
+
+  position:absolute;
+  left:0;
+  top:0%;
+  width:15rem;
+  transform:translate(-30%, 0%);
+  max-height:30rem;
+
+  @media screen and (max-width: 1015px) {
+    position:relative;
+    transform:none;
+    width:100%;
+    padding:0.5rem 0.75rem;
+    font-size:0.9rem;
+    margin-bottom:0;
+  }
+  
+  .scoreHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(129, 95, 76, 0.3);
+  
+    h3 {
+      font-size: 1.1rem;
+      margin: 0;
+      font-weight: 600;
+      @media screen and (max-width: 1015px) {
+        font-size:1rem;
+      }
+    }
+    
+    .scoreValue {
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .positiveScore {
+        font-weight: 700;
+        color: #4caf50;
+    }
+
+    .negativeScore {
+        font-weight: 700;
+        color: #f44336;
+    }
+  }
+  .noWords {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0.5rem 0;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+  
+  .wordsContainer {
+    overflow-y: auto;
+    padding-right: 0.5rem;
+  
+    scrollbar-width: thin;
+    gap:0.5rem;
+    
+    &::-webkit-scrollbar {
+      width: 0.25rem;
+    }
+    
+    &::-webkit-scrollbar-track {
+      background: rgba(129, 95, 76, 0.1);
+      border-radius: 0.25rem;
+    }
+    
+    &::-webkit-scrollbar-thumb {
+      background: rgba(129, 95, 76, 0.5);
+      border-radius: 0.25rem;
+    }
+    
+    @media (max-width: 1015px) or (max-height: 950px) {
+        display:flex;
+        flex-direction:row;
+        flex-wrap:wrap;
+    }
+
+    .wordItem {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.25rem 0.5rem;
+      margin-bottom: 0.25rem;
+      border-radius: 0.25rem;
+      background-color: rgba(129, 95, 76, 0.05);
+      transition: all 0.2s ease;
+      
+      &:last-child {
+        margin-bottom: 0;
+      }
+      
+      &:hover {
+        background-color: rgba(129, 95, 76, 0.1);
+      }
+      
+      &.validWord {
+        border-left: 0.25rem solid #4caf50;
+      }
+      
+      &.invalidWord {
+        border-left: 0.25rem solid #f44336;
+      }
+      .wordText {
+        font-weight: 500;
+        text-transform: uppercase;
+      }
+
+      @media screen and (max-width: 1015px) {
+        padding:0.1rem 0.2rem;
+      }
+      
+      .wordScore {
+        font-weight: 700;
+        margin-left:0.3rem;
+        
+        .validWord & {
+          color: #4caf50;
+        }
+        
+        .invalidWord & {
+          color: #f44336;
+        }
+      }
+    }
+  }
+}
+

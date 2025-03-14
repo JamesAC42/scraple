@@ -54,7 +54,7 @@ h1, h2, h3, h4, h5, h6, p, span, div, a, button, input, textarea {
 .content-container {
   width:70dvw;
   padding:2rem;
-
+  position: relative;
   @media (max-width: 1300px) {
     width: 90dvw;
   }

@@ -23,6 +23,8 @@ import { restrictToWindowEdges } from '@dnd-kit/modifiers';
 import { usePopup } from "@/contexts/PopupContext";
 import Confirm from "@/components/board/Confirm";
 import finishGame from "@/lib/finishGame";
+import calculateCurrentScore from "@/lib/calculateCurrentScore";
+import ScoreTracker from "@/components/board/ScoreTracker";
 
 // Letter points mapping
 const letterPoints = {
@@ -81,6 +83,9 @@ export default function Home() {
   // Audio refs for sound effects
   const suctionSoundRef = useRef(null);
   const clackSoundRef = useRef(null);
+  
+  const [currentScore, setCurrentScore] = useState(0);
+  const [currentWords, setCurrentWords] = useState([]);
   
   // Fetch daily puzzle from the server
   const fetchDailyPuzzle = async () => {
@@ -666,6 +671,33 @@ export default function Home() {
     }, 3000);
   };
   
+  // Calculate current score whenever placedTiles changes
+  useEffect(() => {
+    const updateCurrentScore = async () => {
+      // Only calculate if there are placed tiles and game is not finished
+      if (Object.keys(placedTiles).length > 0 && !isGameFinished) {
+        try {
+          const results = await calculateCurrentScore({
+            placedTiles,
+            bonusTilePositions,
+            letterPoints
+          });
+          
+          setCurrentScore(results.totalScore);
+          setCurrentWords(results.words);
+        } catch (error) {
+          console.error("Error calculating current score:", error);
+        }
+      } else {
+        // Reset score if no tiles are placed
+        setCurrentScore(0);
+        setCurrentWords([]);
+      }
+    };
+    
+    updateCurrentScore();
+  }, [placedTiles, bonusTilePositions, isGameFinished]);
+  
   if (isLoading) {
     return (
       <div className={styles.loadingContainer}>
@@ -737,6 +769,16 @@ export default function Home() {
               <div className={styles.calculatingMessage}>
                 Calculating your score...
               </div>
+            )}
+          </div>
+
+          <div className={styles.scoreTrackerContainer}>
+            {/* Add ScoreTracker component above the board */}
+            {!isGameFinished && (
+              <ScoreTracker 
+                currentScore={currentScore} 
+                words={currentWords} 
+              />
             )}
           </div>
 

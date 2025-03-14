@@ -150,6 +150,15 @@
     }
 }
 
+.scoreTrackerContainer {
+    position:relative;
+    height:0;
+
+    @media (max-width: 1015px) {
+        height:auto;
+    }
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;
