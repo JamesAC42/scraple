@@ -330,6 +330,9 @@ export default function Home() {
         // Set the active tile data
         setActiveTile(tileData);
         
+        // We don't need to set activeId for board tiles since they don't have a corresponding rack ID
+        setActiveId(null);
+        
         // Remove the tile from its current position
         setPlacedTiles(prev => {
           const newPlacedTiles = { ...prev };
@@ -371,8 +374,24 @@ export default function Home() {
     
     // Check if dropped on tile container (to return the tile to the rack)
     if (over.id === 'tile-container') {
-      // If this was a tile from the board, we've already removed it
-      // If it was from the rack, we just need to cancel the drag
+      // If this was a tile from the board, we need to add it back to available tiles
+      if (active.id.startsWith('placed-')) {
+        // Generate a new unique tile ID that doesn't exist in usedTileIds
+        let newIndex = letters.length;
+        let newTileId = `tile-${newIndex}`;
+        
+        // Make sure the new ID is unique
+        while (usedTileIds.includes(newTileId)) {
+          newIndex++;
+          newTileId = `tile-${newIndex}`;
+        }
+        
+        // Add the tile to the end of the letters array with the new index
+        const newTile = { ...activeTile };
+        setLetters(prev => [...prev, newTile]);
+      }
+      
+      // Reset active tile state
       setActiveTile(null);
       setActiveId(null);
       setInvalidPlacement(false);
@@ -782,7 +801,7 @@ export default function Home() {
             {activeTile ? (
               <Tile 
                 letter={activeTile} 
-                id={activeId ? `overlay-${activeId}` : undefined} 
+                id={activeId ? `overlay-${activeId}` : `overlay-dragging`} 
               />
             ) : null}
           </DragOverlay>
