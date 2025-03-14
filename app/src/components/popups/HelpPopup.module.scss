@@ -1,0 +1,149 @@
+@import "../../styles/mixins.scss";
+
+.popup {
+    padding:1rem;
+
+    font-size:1.2rem;
+
+    @media (max-width: 700px) {
+        padding:0.5rem;
+        font-size:1rem;
+    }
+
+    ul {
+        list-style:none;
+        padding:0;
+        margin:1rem 0;
+        
+        li {
+            margin-bottom:0.4rem;
+            padding-left:1rem;
+            position:relative;
+            
+            &:before {
+                content:'•';
+                position:absolute;
+                left:0;
+                color:var(--primary);
+            }
+            
+            span.bold {
+                font-weight:bold;
+                color:var(--primary);
+            }
+        }
+    }
+
+    .center {
+        text-align:center;
+        font-weight:700;
+    }
+
+    .tileExplanation {
+        
+        display:flex;
+
+        margin:1rem 0;
+        justify-content:center;
+        align-items:center;
+        padding:0 2rem;
+        gap:1rem;
+        
+        .tileOuter {
+            flex:1;
+            @include flex-center-row;
+        }
+        .tileExplanationText {
+            flex:1.5;
+            margin-left:1rem;
+            text-align:center;
+
+            @media (max-width: 500px) {
+                font-size:0.9rem;
+                flex:2;
+            }
+        }
+    }
+
+    .cellExplanation {
+        display:flex;
+
+        margin:2rem 0;
+        justify-content:center;
+        align-items:center;
+        padding:0 2rem;
+        gap:1rem;
+
+        .cellExplanationText {
+            flex:1.5;
+            margin-left:1rem;
+            text-align:center;
+
+            @media (max-width: 500px) {
+                font-size:0.9rem;
+                flex:2;
+            }
+        }
+        .cellsOuter {
+            flex:1;
+            gap: 0.5rem;
+            @include flex-center-row;
+            
+            .cellsGrid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                width: fit-content;
+                grid-template-rows: repeat(2, 1fr);
+                gap:0.5rem;
+
+                .bonusCell {
+    
+                    border:2px solid var(--primary);
+                    box-shadow: 0 0.1rem 0.8rem 0rem var(--secondary);
+                    height: 4rem;
+                    width: 4rem;
+                    border-radius: 0.2rem;
+                    font-weight: bold;
+                    font-size: 0.8rem;
+                    text-align: center;
+                    padding: 0.2rem;
+                    @include flex-center-column;
+    
+                    &.doubleLetter {
+                        background-color: #d0fffb;
+                        color: #000;
+                    }
+                    &.tripleLetter {
+                        background-color: #117bd2;
+                        color: #fff;
+                    }
+                    &.doubleWord {
+                        background-color: #ffb0cb;
+                        color: #000;
+                    }
+                    &.tripleWord {
+                        background-color: #e85d5d;
+                        color: #fff;
+                    }
+
+                    @media (max-width: 600px) {
+                        height: 3.5rem;
+                        width: 3.5rem;
+                        font-size:0.7rem;
+                    }
+                }
+            }
+        }
+
+    }
+
+    .finish {
+        color:#254b0c;
+        background:#88ee6e;
+        padding:0.1rem 0.3rem;
+        border-radius:0.2rem;
+        font-size:0.9rem;
+        margin:0 0.2rem;
+        font-weight:bold;
+    }
+}

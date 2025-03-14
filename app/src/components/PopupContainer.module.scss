@@ -1,0 +1,105 @@
+.popupOuter {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height:100dvh;
+    width:100dvw;
+    z-index: 1100000;
+}
+
+@keyframes background-fade-in {
+    from {
+        background-color: rgba(0, 0, 0, 0);
+        backdrop-filter: blur(0px);
+    }
+    to {
+        background-color: rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(3px);
+    }
+}
+
+@keyframes slide-up {
+    from {
+        transform:translate(-50%,-50%) translateY(20%);
+    }
+    to {
+        transform:translate(-50%,-50%) translateY(0);
+    }
+}
+
+.popupInner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.popupBackground {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(3px);
+    animation: background-fade-in 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.popupContent {
+    position: absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    width:40dvw;
+    background-color: var(--background);
+    animation: slide-up 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border-radius: 0.5rem;
+
+    padding:1rem;
+    max-height:95dvh;
+    overflow-y:auto;
+
+    @media (max-width: 1200px) {
+        width:80dvw;
+    }
+    @media (max-width: 700px) {
+        width:95dvw;
+    }
+
+    .popupHeader {
+        display:flex;
+        justify-content: space-between;
+        align-items: center;
+        padding:1rem;
+        border-bottom:1px solid var(--border);
+
+        h2 {
+            font-size:2rem;
+            font-weight:800;
+        }
+
+        .popupCloseButton {
+            border-radius:50%;
+            cursor:pointer;
+            height:2rem;
+            width:2rem;
+            padding:0.2rem;
+            display:flex;
+            justify-content: center;
+            align-items: center;
+            font-size:2rem;
+            font-weight:600;
+            background-color: var(--background);
+            &:hover {
+                filter:brightness(0.9);
+            }
+        }
+
+        @media (max-width: 700px) {
+            padding:0.5rem;
+            h2 {
+                font-size:1.6rem;
+            }
+        }
+        
+    }
+}

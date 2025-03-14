@@ -1,0 +1,52 @@
+@mixin flex-center-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: row;
+}
+
+@mixin flex-center-column {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+
+@mixin button-icon {
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 2rem;
+    color: var(--text-primary);
+    svg {
+        color: var(--text-primary);
+    }
+    &:hover {
+        svg {
+            color: var(--text-secondary);
+        }
+    }
+}
+
+@mixin tile {
+    width: 4rem;
+    height: 4rem;
+    background-color: #f8e8c7;
+    border-radius: 0.25rem;
+    margin: 0.25rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    box-shadow: 0 0.4rem 0 0 #ae8565;
+    user-select: none;
+    touch-action: none;
+    @media (max-width: 900px) {
+        width:3rem;
+        height:3rem;
+    }  
+    @media (max-width: 700px) {
+        width:2.4rem;
+        height:2.4rem;
+        box-shadow: 0 0.2rem 0 0 #ae8565;
+    }  
+}

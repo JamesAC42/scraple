@@ -1,0 +1,37 @@
+// Theme variables
+:root {
+  // Default light theme variables
+  --primary: #4a6fa5;
+  --secondary: #6c8ebd;
+  --accent: #ff6b6b;
+  --background: #f8f9fa;
+  --surface: #ffffff;
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --border: #e0e0e0;
+  --shadow: rgba(0, 0, 0, 0.1);
+  
+  // Transition for smooth theme switching
+  --transition-duration: 0.2s;
+}
+
+// Dark theme variables
+body.dark-theme {
+  --primary: #5d8acd;
+  --secondary: #7fa3d7;
+  --accent: #ff8585;
+  --background: #121212;
+  --surface: #1e1e1e;
+  --text-primary: #f0f0f0;
+  --text-secondary: #b0b0b0;
+  --border: #333333;
+  --shadow: rgba(0, 0, 0, 0.3);
+}
+
+// Apply transitions to elements that change with theme
+* {
+  transition: background-color var(--transition-duration) cubic-bezier(0.175, 0.885, 0.32, 1.275),
+              color var(--transition-duration)  cubic-bezier(0.175, 0.885, 0.32, 1.275),
+              border-color var(--transition-duration)  cubic-bezier(0.175, 0.885, 0.32, 1.275),
+              box-shadow var(--transition-duration)  cubic-bezier(0.175, 0.885, 0.32, 1.275);
+} 

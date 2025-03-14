@@ -1,0 +1,123 @@
+@import "../../styles/mixins.scss";
+
+.boardCell {
+    height:6rem;
+    width:6rem;
+    border:1px solid #815f4c;
+    background-color:#d6bbaa;
+    border-radius:0.2rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    @include flex-center-column;
+
+    position:relative;
+    transition: all 0.2s ease;
+
+    &::before, &::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index:1;
+        transform:rotate(45deg) scale(0.85);
+    }
+
+    @media (max-width: 900px) {
+        height: 3.5rem;
+        width: 3.5rem;
+    }
+
+    &.double-letter,
+    &.triple-letter,
+    &.double-word,
+    &.triple-word {
+        &::after {
+            transform:translate(-1px, -1px);
+            border-radius:0.2rem;
+            border:1px solid #815f4c;
+        }
+    }
+
+    &.double-letter {
+        background-color: #d0fffb;
+        color: #000;
+        &::before, &::after {
+            background-color: #d0fffb;
+        }
+    }
+
+    &.triple-letter {   
+        background-color: #117bd2;
+        color: #fff;
+        &::before, &::after {
+            background-color: #117bd2;
+        }
+    }
+
+    &.double-word {
+        background-color: #ffb0cb;
+        color: #000;
+        &::before, &::after {
+            background-color: #ffb0cb;
+        }
+    }   
+
+    &.triple-word {
+        background-color: #e85d5d;
+        color: #fff;
+        &::before, &::after {
+            background-color: #e85d5d;
+        }
+    }
+
+    &.validTarget {
+        &::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 0.3rem dashed rgba(147, 112, 102, 0.945);
+            border-radius: 0.2rem;
+            box-sizing: border-box;
+            animation: pulse 1.5s infinite;
+            z-index: 3;
+            transform: none;
+            background-color: transparent;
+        }
+
+        &.isOver {
+            //box-shadow: 0 0 0 0.25rem rgba(255, 255, 0, 0.5);
+            //transform: scale(1.05);
+            filter: brightness(1.3);
+        }
+    }
+
+    @keyframes pulse {
+        0% {
+            opacity: 0.4;
+        }
+        50% {
+            opacity: 0.8;
+        }
+        100% {
+            opacity: 0.4;
+        }
+    }
+
+    & > * {
+        font-size: 1rem;
+        font-weight: 600;
+        text-align: center;
+        border-radius:0.2rem;
+        z-index:2;
+        @media (max-width: 900px) {
+            font-size: 0.7rem;
+        }
+    }
+}

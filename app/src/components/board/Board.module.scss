@@ -1,0 +1,21 @@
+.board {
+    display: flex;
+    flex-direction: column;
+
+    background-color:#dcc5b6;
+    border-radius:0.5rem;
+    border:1px solid #815f4c;
+    position: relative;
+    overflow:visible;
+    box-shadow:0 1.2rem 0 0 #815f4c;
+    
+    padding:0.5rem;
+    gap:0.2rem;
+
+    .boardRow { 
+        display: flex;
+        flex-direction: row;
+
+        gap:0.2rem;
+    }
+}
