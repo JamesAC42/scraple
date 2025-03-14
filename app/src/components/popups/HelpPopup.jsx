@@ -1,7 +1,7 @@
 'use client';
 
 import styles from "./HelpPopup.module.scss";
-import Tile from "../Board/Tile";
+import Tile from "../board/Tile";
 
 const HelpPopup = ({ onClose }) => {
     return (
