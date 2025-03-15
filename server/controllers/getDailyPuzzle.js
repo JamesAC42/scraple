@@ -132,18 +132,24 @@ const generateBonusTilePositions = () => {
 
 // Format date as YYYY-MM-DD
 const getFormattedDate = () => {
+  // Create date in Eastern Time
   const date = new Date();
-  return date.toISOString().split('T')[0];
+  const options = { timeZone: 'America/New_York' };
+  const etDate = new Date(date.toLocaleString('en-US', options));
+  return etDate.toISOString().split('T')[0];
 };
 
 // Format date for display (Month Day, Year)
 const getDisplayDate = () => {
+  // Create date in Eastern Time
   const date = new Date();
-  return date.toLocaleDateString('en-US', { 
+  const options = { 
+    timeZone: 'America/New_York',
     month: 'long', 
     day: 'numeric', 
     year: 'numeric' 
-  });
+  };
+  return date.toLocaleString('en-US', options);
 };
 
 // Redis key for storing the daily puzzle
