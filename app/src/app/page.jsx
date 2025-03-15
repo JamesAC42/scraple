@@ -42,6 +42,7 @@ const STORAGE_KEY = 'scraple_game_state';
 const GAME_DATE_KEY = 'scraple_game_date';
 const GAME_RESULTS_KEY = 'scraple_game_results';
 const PLAYER_ID_KEY = 'scraple_player_id';
+const HELP_SEEN_KEY = 'scraple_help_seen'; // New key for tracking if help popup has been seen
 
 // Function to get emoji and descriptive word based on score
 const getScoreRating = (score) => {
@@ -833,6 +834,22 @@ export default function Home() {
     
     fetchLeaderboardInfo();
   }, [isGameFinished, gameResults, playerId, leaderboardInfo]);
+  
+  // Add a new useEffect to show the help popup on first visit
+  useEffect(() => {
+    // Check if the user has seen the help popup before
+    if (typeof window !== 'undefined' && !isLoading) {
+      const hasSeenHelp = localStorage.getItem(HELP_SEEN_KEY);
+      
+      if (!hasSeenHelp) {
+        // Show the help popup
+        setActivePopup("help");
+        
+        // Mark that the user has seen the help popup
+        localStorage.setItem(HELP_SEEN_KEY, 'true');
+      }
+    }
+  }, [isLoading, setActivePopup]); // Depend on isLoading to ensure the game is loaded first
   
   if (isLoading) {
     return (
