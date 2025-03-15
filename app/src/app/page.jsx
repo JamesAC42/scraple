@@ -799,6 +799,14 @@ export default function Home() {
                   {isGameFinished ? "Finished" : "Finish"}
                 </div>
               </div>
+              <div
+                onClick={resetGame}
+                className={`${styles.resetButton} ${isGameFinished ? styles.disabledButton : ''}`}>
+                <LiaUndoAltSolid /> 
+                <div className={styles.buttonLabel}>
+                  Reset
+                </div>
+              </div>
             </div>
           </div>
           
@@ -889,6 +897,14 @@ export default function Home() {
               <IoMdShuffle /> 
               <div className={styles.buttonLabel}>
                 Shuffle Tiles
+              </div>
+            </div>
+            <div
+              onClick={resetGame}
+              className={`${styles.resetButton} ${isGameFinished ? styles.disabledButton : ''}`}>
+              <LiaUndoAltSolid /> 
+              <div className={styles.buttonLabel}>
+                Reset
               </div>
             </div>
           </div>
