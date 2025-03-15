@@ -2,11 +2,10 @@
 
 import styles from "../styles/pages/page.module.scss";
 import Image from "next/image";
-import { useState, useEffect, useRef, useContext } from "react";
-import { IoMdHelpCircleOutline, IoMdInformationCircleOutline } from "react-icons/io";
+import { useState, useEffect, useRef } from "react";
+import { IoMdHelpCircleOutline, IoMdInformationCircleOutline, IoMdTrophy } from "react-icons/io";
 import Board from "@/components/board/Board";
 import Tile from "@/components/board/Tile";
-import TileTypes from "@/types/TileTypes";
 import TileContainer from "@/components/board/TileContainer";
 import { LiaUndoAltSolid } from "react-icons/lia";
 import { IoCheckmark } from "react-icons/io5";
@@ -42,6 +41,7 @@ const letterPoints = {
 const STORAGE_KEY = 'scraple_game_state';
 const GAME_DATE_KEY = 'scraple_game_date';
 const GAME_RESULTS_KEY = 'scraple_game_results';
+const PLAYER_ID_KEY = 'scraple_player_id';
 
 // Function to get emoji and descriptive word based on score
 const getScoreRating = (score) => {
@@ -72,6 +72,11 @@ export default function Home() {
   const [isGameFinished, setIsGameFinished] = useState(false);
   const [gameResults, setGameResults] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
+  
+  // New state variables for leaderboard
+  const [leaderboardInfo, setLeaderboardInfo] = useState(null);
+  const [isSubmittingScore, setIsSubmittingScore] = useState(false);
+  const [playerId, setPlayerId] = useState(null);
 
   const [showFinishPopup, setShowFinishPopup] = useState(false);
   const [shareMessage, setShareMessage] = useState('');
@@ -112,6 +117,7 @@ export default function Home() {
   // Save game state to localStorage
   const saveGameState = () => {
     if (typeof window !== 'undefined') {
+      console.log("Saving game state, isGameFinished:", isGameFinished);
       const gameState = {
         letters,
         placedTiles,
@@ -127,6 +133,7 @@ export default function Home() {
       
       // Save game results if they exist
       if (gameResults) {
+        console.log("Saving game results");
         localStorage.setItem(GAME_RESULTS_KEY, JSON.stringify(gameResults));
       }
     }
@@ -140,6 +147,8 @@ export default function Home() {
         const savedDate = localStorage.getItem(GAME_DATE_KEY);
         const savedResults = localStorage.getItem(GAME_RESULTS_KEY);
         const currentDate = new Date().toISOString().split('T')[0];
+        
+        console.log("Loading game state, savedDate:", savedDate, "currentDate:", currentDate);
         
         // If it's a new day or no saved state, fetch new puzzle
         if (savedDate !== currentDate || !savedState) {
@@ -166,16 +175,24 @@ export default function Home() {
         if (savedState) {
           const parsedState = JSON.parse(savedState);
           
-          setLetters(parsedState.letters);
+          setLetters(parsedState.letters || []);
           setPlacedTiles(parsedState.placedTiles || {});
           setUsedTileIds(parsedState.usedTileIds || []);
-          setIsGameFinished(parsedState.isGameFinished || false);
+          
+          // Explicitly check for isGameFinished
+          const gameFinished = parsedState.isGameFinished === true;
+          setIsGameFinished(gameFinished);
+          
           setBonusTilePositions(parsedState.bonusTilePositions || {});
           setDisplayDate(parsedState.displayDate || '');
           
           // Load game results if they exist
           if (savedResults) {
-            setGameResults(JSON.parse(savedResults));
+            const parsedResults = JSON.parse(savedResults);
+            setGameResults(parsedResults);
+          } else if (gameFinished) {
+            // If the game is finished but we don't have results, something went wrong
+            console.warn("Game is marked as finished but no results found");
           }
           
           // Make sure to set loading to false when loading from localStorage
@@ -198,12 +215,21 @@ export default function Home() {
     const dailyPuzzle = await fetchDailyPuzzle();
     
     if (dailyPuzzle) {
+      // Reset all game state
       setLetters(dailyPuzzle.letters);
       setBonusTilePositions(dailyPuzzle.bonusTilePositions);
       setDisplayDate(dailyPuzzle.displayDate);
       setPlacedTiles({});
       setUsedTileIds([]);
       setInvalidPlacement(false);
+      setIsGameFinished(false);
+      setGameResults(null);
+      setLeaderboardInfo(null);
+      
+      // Clear results from localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(GAME_RESULTS_KEY);
+      }
       
       // Save the new state
       setTimeout(() => {
@@ -541,6 +567,59 @@ export default function Home() {
     return false;
   };
 
+  // Generate or retrieve player ID
+  useEffect(() => {
+    // Check if player ID exists in localStorage
+    let storedPlayerId = localStorage.getItem(PLAYER_ID_KEY);
+    
+    // If not, generate a new one
+    if (!storedPlayerId) {
+      storedPlayerId = 'player_' + Math.random().toString(36).substring(2, 15) + 
+                       Math.random().toString(36).substring(2, 15);
+      localStorage.setItem(PLAYER_ID_KEY, storedPlayerId);
+    }
+    
+    setPlayerId(storedPlayerId);
+  }, []);
+  
+  // Submit score to leaderboard
+  const submitScoreToLeaderboard = async (results) => {
+    if (!playerId || !results) return;
+    
+    setIsSubmittingScore(true);
+    
+    try {
+      const gameState = {
+        placedTiles,
+        bonusTilePositions,
+        date: new Date().toISOString().split('T')[0]
+      };
+      
+      const response = await fetch('/api/leaderboard/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          score: results.totalScore,
+          gameState,
+          playerId
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to submit score: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setLeaderboardInfo(data);
+    } catch (error) {
+      console.error('Error submitting score:', error);
+    } finally {
+      setIsSubmittingScore(false);
+    }
+  };
+  
   const handleConfirm = async () => {
     // Validate tile placement before proceeding
     if (!validateTilePlacement()) {
@@ -563,10 +642,25 @@ export default function Home() {
       setIsGameFinished(true);
       setShowFinishPopup(false);
       
-      // Save the game state with results
-      setTimeout(() => {
-        saveGameState();
-      }, 0);
+      // Submit score to leaderboard
+      await submitScoreToLeaderboard(results);
+      
+      // Force an immediate save of the game state with the updated isGameFinished flag
+      const gameState = {
+        letters,
+        placedTiles,
+        usedTileIds,
+        isGameFinished: true, // Explicitly set to true
+        date: new Date().toISOString().split('T')[0],
+        bonusTilePositions,
+        displayDate
+      };
+      
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
+        localStorage.setItem(GAME_DATE_KEY, gameState.date);
+        localStorage.setItem(GAME_RESULTS_KEY, JSON.stringify(results));
+      }
     } catch (error) {
       console.error("Error calculating game results:", error);
       alert("There was an error calculating your score. Please try again.");
@@ -698,6 +792,48 @@ export default function Home() {
     updateCurrentScore();
   }, [placedTiles, bonusTilePositions, isGameFinished]);
   
+  // Add a new useEffect to fetch leaderboard info when the game is loaded as finished
+  useEffect(() => {
+    const fetchLeaderboardInfo = async () => {
+      // Only fetch if the game is finished, we have results, and we have a playerId
+      if (isGameFinished && gameResults && playerId) {
+        
+        try {
+          // Check if we already have leaderboard info
+          if (!leaderboardInfo) {
+            setIsSubmittingScore(true);
+            
+            const response = await fetch(`/api/leaderboard?playerId=${playerId}`);
+            
+            if (!response.ok) {
+              throw new Error(`Failed to fetch leaderboard: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Only update leaderboard info if we have player info
+            if (data.playerInfo) {
+              
+              // Format the data to match the structure expected by the UI
+              setLeaderboardInfo({
+                rank: data.playerInfo.rank,
+                totalScores: data.totalPlayers,
+                percentile: data.playerInfo.percentile,
+                isInTopTen: data.playerInfo.rank <= 10
+              });
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching leaderboard info:", error);
+        } finally {
+          setIsSubmittingScore(false);
+        }
+      }
+    };
+    
+    fetchLeaderboardInfo();
+  }, [isGameFinished, gameResults, playerId, leaderboardInfo]);
+  
   if (isLoading) {
     return (
       <div className={styles.loadingContainer}>
@@ -741,6 +877,12 @@ export default function Home() {
             <div className={styles.gameHeaderButtons}>
               <button 
                 className={styles.gameHeaderButton}
+                onClick={() => setActivePopup("leaderboard")}
+              >
+                <IoMdTrophy />
+              </button>
+              <button 
+                className={styles.gameHeaderButton}
                 onClick={() => setActivePopup("help")}
               >
                 <IoMdHelpCircleOutline />
@@ -768,6 +910,11 @@ export default function Home() {
             {isCalculating && (
               <div className={styles.calculatingMessage}>
                 Calculating your score...
+              </div>
+            )}
+            {isSubmittingScore && (
+              <div className={styles.calculatingMessage}>
+                Submitting your score...
               </div>
             )}
           </div>
@@ -828,6 +975,32 @@ export default function Home() {
                   {getScoreRating(gameResults.totalScore).emoji} <strong>{getScoreRating(gameResults.totalScore).description}</strong>
                 </span>
               </div>
+              
+              {/* Leaderboard Info */}
+              {leaderboardInfo && (
+                <div className={styles.leaderboardInfo}>
+                  <div className={styles.leaderboardRank}>
+                    {leaderboardInfo.isInTopTen ? (
+                      <div className={styles.topTenBadge}>
+                        🏆 You're in the top 10! Rank: <strong>{leaderboardInfo.rank}</strong>
+                      </div>
+                    ) : (
+                      <div>
+                        Your rank: <strong>{leaderboardInfo.rank}</strong> of {leaderboardInfo.totalScores}
+                      </div>
+                    )}
+                  </div>
+                  <div className={styles.leaderboardPercentile}>
+                    Better than <strong>{leaderboardInfo.percentile}%</strong> of players today
+                  </div>
+                  <button 
+                    className={styles.viewLeaderboardButton}
+                    onClick={() => setActivePopup("leaderboard")}
+                  >
+                    <IoMdTrophy /> View Full Leaderboard
+                  </button>
+                </div>
+              )}
               
               <div className={styles.shareContainer}>
                 <button 

@@ -5,6 +5,7 @@ const app = express();
 
 const {createClient} = require('redis');
 const { getDailyPuzzle } = require('./controllers/getDailyPuzzle');
+const { submitScore, getLeaderboard } = require('./controllers/leaderboard');
 
 // Create Redis client with configuration
 const redisClient = createClient({
@@ -31,14 +32,19 @@ app.use(cors({
   credentials: true
 }));
 
+// Add JSON parsing middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.set('trust proxy', 1);
+
 // Make Redis client available to route handlers
 app.set('redisClient', redisClient);
 
 // API routes
 app.get('/api/daily-puzzle', getDailyPuzzle);
+app.post('/api/leaderboard/submit', submitScore);
+app.get('/api/leaderboard', getLeaderboard);
 
-app.use(express.urlencoded({ extended: true }));
-app.set('trust proxy', 1);
 // Connect to Redis before starting the server
 async function startServer() {
   try {
