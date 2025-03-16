@@ -64,6 +64,7 @@ export default function Home() {
   const [usedTileIds, setUsedTileIds] = useState([]);
   const [invalidPlacement, setInvalidPlacement] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingFromBoard, setIsDraggingFromBoard] = useState(false);
   const [originalPosition, setOriginalPosition] = useState(null);
   const [bonusTilePositions, setBonusTilePositions] = useState({});
   const [displayDate, setDisplayDate] = useState('');
@@ -369,6 +370,9 @@ export default function Home() {
         // We don't need to set activeId for board tiles since they don't have a corresponding rack ID
         setActiveId(null);
         
+        // Set flag that we're dragging from board before removing the tile
+        setIsDraggingFromBoard(true);
+        
         // Remove the tile from its current position
         setPlacedTiles(prev => {
           const newPlacedTiles = { ...prev };
@@ -399,6 +403,9 @@ export default function Home() {
     if (isGameFinished) return;
     
     const { active, over } = event;
+    
+    // Reset the dragging from board flag
+    setIsDraggingFromBoard(false);
     
     if (!over) {
       // Dropped outside any droppable area
@@ -526,9 +533,10 @@ export default function Home() {
       return { row, col, pos };
     });
     
-    // If only one tile is placed, it's valid
+    // If only one tile is placed, it's invalid - we need at least two tiles
     if (positions.length === 1) {
-      return true;
+      setValidationError("Please place at least two tiles on the board.");
+      return false;
     }
     
     // Check if all tiles are connected
@@ -769,6 +777,11 @@ export default function Home() {
   // Calculate current score whenever placedTiles changes
   useEffect(() => {
     const updateCurrentScore = async () => {
+      // Skip calculation if we're in the middle of dragging a tile from the board
+      if (isDraggingFromBoard) {
+        return;
+      }
+      
       // Only calculate if there are placed tiles and game is not finished
       if (Object.keys(placedTiles).length > 0 && !isGameFinished) {
         try {
@@ -791,7 +804,7 @@ export default function Home() {
     };
     
     updateCurrentScore();
-  }, [placedTiles, bonusTilePositions, isGameFinished]);
+  }, [placedTiles, bonusTilePositions, isGameFinished, isDraggingFromBoard]);
   
   // Add a new useEffect to fetch leaderboard info when the game is loaded as finished
   useEffect(() => {
