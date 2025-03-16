@@ -9,13 +9,20 @@ const LeaderboardPopup = ({ onClose }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [playerId, setPlayerId] = useState(null);
+  const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
   
   useEffect(() => {
+    // Check if the user has submitted their score
+    const gameResults = localStorage.getItem('scraple_game_results');
+    setHasSubmittedScore(!!gameResults);
+    
     // Get player ID from localStorage
     const storedPlayerId = localStorage.getItem('scraple_player_id');
     setPlayerId(storedPlayerId);
     
-    fetchLeaderboard(storedPlayerId);
+    if (!!gameResults) {
+      fetchLeaderboard(storedPlayerId);
+    }
   }, []);
   
   const fetchLeaderboard = async (id) => {
@@ -42,6 +49,17 @@ const LeaderboardPopup = ({ onClose }) => {
   const handleRefresh = () => {
     fetchLeaderboard(playerId);
   };
+  
+  // If the user hasn't submitted their score, show a message
+  if (!hasSubmittedScore) {
+    return (
+      <div className={styles.leaderboardContainer}>
+        <div className={styles.emptyMessage}>
+          You need to submit your score before you can view the leaderboard.
+        </div>
+      </div>
+    );
+  }
   
   // Function to render a simplified board
   const renderMiniBoard = (gameState) => {
