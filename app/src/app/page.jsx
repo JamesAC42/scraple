@@ -55,6 +55,27 @@ const getScoreRating = (score) => {
   return { emoji: "🏆", description: "Legendary" };
 };
 
+// Format date as YYYY-MM-DD in Eastern Time
+const getFormattedDate = () => {
+  const date = new Date();
+  const options = { timeZone: 'America/New_York' };
+  const etDate = new Date(date.toLocaleString('en-US', options));
+  return etDate.toISOString().split('T')[0];
+};
+
+// Format date for display (Month Day, Year)
+const getDisplayDate = () => {
+  // Create date in Eastern Time
+  const date = new Date();
+  const options = { 
+    timeZone: 'America/New_York',
+    month: 'long', 
+    day: 'numeric', 
+    year: 'numeric' 
+  };
+  return date.toLocaleString('en-US', options);
+};
+
 export default function Home() {
   // Initialize letters state with empty array
   const [letters, setLetters] = useState([]);
@@ -125,7 +146,7 @@ export default function Home() {
         placedTiles,
         usedTileIds,
         isGameFinished,
-        date: new Date().toISOString().split('T')[0], // Store current date in YYYY-MM-DD format
+        date: getFormattedDate(), // Store current date in YYYY-MM-DD format
         bonusTilePositions,
         displayDate
       };
@@ -148,7 +169,7 @@ export default function Home() {
         const savedState = localStorage.getItem(STORAGE_KEY);
         const savedDate = localStorage.getItem(GAME_DATE_KEY);
         const savedResults = localStorage.getItem(GAME_RESULTS_KEY);
-        const currentDate = new Date().toISOString().split('T')[0];
+        const currentDate = getFormattedDate();
         
         console.log("Loading game state, savedDate:", savedDate, "currentDate:", currentDate);
         
@@ -601,7 +622,7 @@ export default function Home() {
       const gameState = {
         placedTiles,
         bonusTilePositions,
-        date: new Date().toISOString().split('T')[0]
+        date: getFormattedDate()
       };
       
       const response = await fetch('/api/leaderboard/submit', {
@@ -660,7 +681,7 @@ export default function Home() {
         placedTiles,
         usedTileIds,
         isGameFinished: true, // Explicitly set to true
-        date: new Date().toISOString().split('T')[0],
+        date: getFormattedDate(),
         bonusTilePositions,
         displayDate
       };
@@ -683,11 +704,7 @@ export default function Home() {
     if (!gameResults) return;
     
     // Create share text
-    const date = new Date().toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
-    });
+    const date = getDisplayDate();
     
     const { emoji, description } = getScoreRating(gameResults.totalScore);
     
@@ -699,10 +716,10 @@ export default function Home() {
     shareText += `${description}!\n\n`;
     
     // Add valid words
-    const validWords = gameResults.words.filter(word => word.valid);
-    if (validWords.length > 0) {
-      shareText += `Words: ${validWords.map(w => w.word.toUpperCase()).join(', ')}\n\n`;
-    }
+    //const validWords = gameResults.words.filter(word => word.valid);
+    //if (validWords.length > 0) {
+    //  shareText += `Words: ${validWords.map(w => w.word.toUpperCase()).join(', ')}\n\n`;
+    //}
     
     // Add URL with proper spacing
     shareText += `Play today's puzzle at: ${window.location.origin}`;
