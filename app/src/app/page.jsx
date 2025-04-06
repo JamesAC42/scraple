@@ -43,6 +43,10 @@ const GAME_DATE_KEY = 'scraple_game_date';
 const GAME_RESULTS_KEY = 'scraple_game_results';
 const PLAYER_ID_KEY = 'scraple_player_id';
 const HELP_SEEN_KEY = 'scraple_help_seen'; // New key for tracking if help popup has been seen
+const DATA_VERSION_KEY = 'scraple_data_version'; // New key for tracking data version
+
+// Current data version - increment this when making breaking changes to the data structure
+const CURRENT_DATA_VERSION = '1.0.0';
 
 // Function to get emoji and descriptive word based on score
 const getScoreRating = (score) => {
@@ -137,31 +141,6 @@ export default function Home() {
     }
   };
   
-  // Save game state to localStorage
-  const saveGameState = () => {
-    if (typeof window !== 'undefined') {
-      console.log("Saving game state, isGameFinished:", isGameFinished);
-      const gameState = {
-        letters,
-        placedTiles,
-        usedTileIds,
-        isGameFinished,
-        date: getFormattedDate(), // Store current date in YYYY-MM-DD format
-        bonusTilePositions,
-        displayDate
-      };
-      
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
-      localStorage.setItem(GAME_DATE_KEY, gameState.date);
-      
-      // Save game results if they exist
-      if (gameResults) {
-        console.log("Saving game results");
-        localStorage.setItem(GAME_RESULTS_KEY, JSON.stringify(gameResults));
-      }
-    }
-  };
-
   // Load game state from localStorage
   const loadGameState = async () => {
     if (typeof window !== 'undefined') {
@@ -169,15 +148,23 @@ export default function Home() {
         const savedState = localStorage.getItem(STORAGE_KEY);
         const savedDate = localStorage.getItem(GAME_DATE_KEY);
         const savedResults = localStorage.getItem(GAME_RESULTS_KEY);
-        const currentDate = getFormattedDate();
+        const savedVersion = localStorage.getItem(DATA_VERSION_KEY);
         
-        console.log("Loading game state, savedDate:", savedDate, "currentDate:", currentDate);
-        
-        // If it's a new day or no saved state, fetch new puzzle
-        if (savedDate !== currentDate || !savedState) {
-          console.log("New day or no saved state, fetching new puzzle");
-          const dailyPuzzle = await fetchDailyPuzzle();
+        // Check if we need to migrate data due to version mismatch
+        if (savedVersion !== CURRENT_DATA_VERSION) {
+          console.log(`Data version mismatch: ${savedVersion} vs ${CURRENT_DATA_VERSION}`);
           
+          // For now, just clear the data and start fresh
+          // In the future, you could add migration logic here
+          localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(GAME_DATE_KEY);
+          localStorage.removeItem(GAME_RESULTS_KEY);
+          
+          // Set the new version
+          localStorage.setItem(DATA_VERSION_KEY, CURRENT_DATA_VERSION);
+          
+          // Continue with a fresh game
+          const dailyPuzzle = await fetchDailyPuzzle();
           if (dailyPuzzle) {
             setLetters(dailyPuzzle.letters);
             setBonusTilePositions(dailyPuzzle.bonusTilePositions);
@@ -187,14 +174,127 @@ export default function Home() {
             setIsGameFinished(false);
             setGameResults(null);
             
-            // Clear results from localStorage
-            localStorage.removeItem(GAME_RESULTS_KEY);
+            // Save the new state with the server's date
+            const newGameState = {
+              letters: dailyPuzzle.letters,
+              placedTiles: {},
+              usedTileIds: [],
+              isGameFinished: false,
+              date: dailyPuzzle.date,
+              bonusTilePositions: dailyPuzzle.bonusTilePositions,
+              displayDate: dailyPuzzle.displayDate
+            };
+            
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(newGameState));
+            localStorage.setItem(GAME_DATE_KEY, dailyPuzzle.date);
             
             return true;
           }
           return false;
         }
         
+        // Always fetch the current puzzle from the server to get the correct date
+        const dailyPuzzle = await fetchDailyPuzzle();
+        
+        if (!dailyPuzzle) {
+          console.error("Failed to fetch daily puzzle");
+          setIsLoading(false);
+          return false;
+        }
+        
+        // Use the server's date as the source of truth
+        const serverDate = dailyPuzzle.date;
+        console.log("Server date:", serverDate, "Saved date:", savedDate);
+        
+        // Check for potentially corrupted data
+        let isDataCorrupted = false;
+        
+        if (savedState) {
+          try {
+            const parsedState = JSON.parse(savedState);
+            
+            // Check if the saved state has all required properties
+            if (!parsedState.letters || !parsedState.bonusTilePositions || !parsedState.date) {
+              console.warn("Saved game state is missing required properties");
+              isDataCorrupted = true;
+            }
+            
+            // Check if the saved date matches the date in the saved state
+            if (savedDate !== parsedState.date) {
+              console.warn("Date mismatch between GAME_DATE_KEY and saved state");
+              isDataCorrupted = true;
+            }
+          } catch (parseError) {
+            console.error("Error parsing saved game state:", parseError);
+            isDataCorrupted = true;
+          }
+        }
+        
+        // If data is corrupted, clear it and use the new puzzle
+        if (isDataCorrupted) {
+          console.log("Detected corrupted data, clearing localStorage and using new puzzle");
+          localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(GAME_DATE_KEY);
+          localStorage.removeItem(GAME_RESULTS_KEY);
+          
+          // Set up new game state with the server's puzzle
+          setLetters(dailyPuzzle.letters);
+          setBonusTilePositions(dailyPuzzle.bonusTilePositions);
+          setDisplayDate(dailyPuzzle.displayDate);
+          setPlacedTiles({});
+          setUsedTileIds([]);
+          setIsGameFinished(false);
+          setGameResults(null);
+          
+          // Save the new state with the server's date
+          const newGameState = {
+            letters: dailyPuzzle.letters,
+            placedTiles: {},
+            usedTileIds: [],
+            isGameFinished: false,
+            date: serverDate,
+            bonusTilePositions: dailyPuzzle.bonusTilePositions,
+            displayDate: dailyPuzzle.displayDate
+          };
+          
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(newGameState));
+          localStorage.setItem(GAME_DATE_KEY, serverDate);
+          
+          return true;
+        }
+        
+        // If it's a new day or no saved state, use the new puzzle
+        if (savedDate !== serverDate || !savedState) {
+          console.log("New day or no saved state, using new puzzle");
+          setLetters(dailyPuzzle.letters);
+          setBonusTilePositions(dailyPuzzle.bonusTilePositions);
+          setDisplayDate(dailyPuzzle.displayDate);
+          setPlacedTiles({});
+          setUsedTileIds([]);
+          setIsGameFinished(false);
+          setGameResults(null);
+          
+          // Clear results from localStorage
+          localStorage.removeItem(GAME_RESULTS_KEY);
+          
+          // Save the new state with the server's date
+          const newGameState = {
+            letters: dailyPuzzle.letters,
+            placedTiles: {},
+            usedTileIds: [],
+            isGameFinished: false,
+            date: serverDate,
+            bonusTilePositions: dailyPuzzle.bonusTilePositions,
+            displayDate: dailyPuzzle.displayDate
+          };
+          
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(newGameState));
+          localStorage.setItem(GAME_DATE_KEY, serverDate);
+          
+          return true;
+        }
+        
+        // If we have a saved state for the same day, use it
         if (savedState) {
           const parsedState = JSON.parse(savedState);
           
@@ -254,10 +354,19 @@ export default function Home() {
         localStorage.removeItem(GAME_RESULTS_KEY);
       }
       
-      // Save the new state
-      setTimeout(() => {
-        saveGameState();
-      }, 0);
+      // Save the new state with the server's date
+      const newGameState = {
+        letters: dailyPuzzle.letters,
+        placedTiles: {},
+        usedTileIds: [],
+        isGameFinished: false,
+        date: dailyPuzzle.date, // Use the server's date
+        bonusTilePositions: dailyPuzzle.bonusTilePositions,
+        displayDate: dailyPuzzle.displayDate
+      };
+      
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newGameState));
+      localStorage.setItem(GAME_DATE_KEY, dailyPuzzle.date);
     }
   };
   
@@ -619,10 +728,13 @@ export default function Home() {
     setIsSubmittingScore(true);
     
     try {
+      // Get the current date from localStorage to ensure consistency
+      const currentDate = localStorage.getItem(GAME_DATE_KEY) || getFormattedDate();
+      
       const gameState = {
         placedTiles,
         bonusTilePositions,
-        date: getFormattedDate()
+        date: currentDate // Use the date from localStorage
       };
       
       const response = await fetch('/api/leaderboard/submit', {
@@ -675,20 +787,23 @@ export default function Home() {
       // Submit score to leaderboard
       await submitScoreToLeaderboard(results);
       
+      // Get the current date from localStorage to ensure consistency
+      const currentDate = localStorage.getItem(GAME_DATE_KEY) || getFormattedDate();
+      
       // Force an immediate save of the game state with the updated isGameFinished flag
       const gameState = {
         letters,
         placedTiles,
         usedTileIds,
         isGameFinished: true, // Explicitly set to true
-        date: getFormattedDate(),
+        date: currentDate, // Use the date from localStorage
         bonusTilePositions,
         displayDate
       };
       
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
-        localStorage.setItem(GAME_DATE_KEY, gameState.date);
+        localStorage.setItem(GAME_DATE_KEY, currentDate);
         localStorage.setItem(GAME_RESULTS_KEY, JSON.stringify(results));
       }
     } catch (error) {
@@ -880,6 +995,35 @@ export default function Home() {
       }
     }
   }, [isLoading, setActivePopup]); // Depend on isLoading to ensure the game is loaded first
+  
+  // Save game state to localStorage
+  const saveGameState = () => {
+    if (typeof window !== 'undefined') {
+      console.log("Saving game state, isGameFinished:", isGameFinished);
+      
+      // Get the current date from localStorage to ensure consistency
+      const currentDate = localStorage.getItem(GAME_DATE_KEY) || getFormattedDate();
+      
+      const gameState = {
+        letters,
+        placedTiles,
+        usedTileIds,
+        isGameFinished,
+        date: currentDate, // Use the date from localStorage or fallback to current date
+        bonusTilePositions,
+        displayDate
+      };
+      
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
+      localStorage.setItem(GAME_DATE_KEY, currentDate);
+      
+      // Save game results if they exist
+      if (gameResults) {
+        console.log("Saving game results");
+        localStorage.setItem(GAME_RESULTS_KEY, JSON.stringify(gameResults));
+      }
+    }
+  };
   
   if (isLoading) {
     return (
@@ -1128,6 +1272,8 @@ export default function Home() {
               </div>
             </div>
           </div>
+          
+          {/* Reset all data button has been moved to the info popup */}
         </div>
       </div>
       {/* Hidden textarea for clipboard operations */}

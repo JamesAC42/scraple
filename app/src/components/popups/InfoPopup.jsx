@@ -4,8 +4,41 @@ import styles from "./InfoPopup.module.scss";
 import { FaGithub } from "react-icons/fa";
 import { MdEmail } from "react-icons/md";
 import { FaXTwitter } from "react-icons/fa6";
+import { useState } from "react";
 
 const InfoPopup = ({ onClose }) => {
+    const [isResetting, setIsResetting] = useState(false);
+
+    const resetAllGameData = async () => {
+
+        if(!confirm("Are you sure you want to reset all game data? This will delete all your progress and cannot be undone.")) {
+            return;
+        }
+
+        if (isResetting) return;
+        
+        setIsResetting(true);
+        
+        if (typeof window !== 'undefined') {
+            // Clear all game-related localStorage items
+            localStorage.removeItem('scraple_game_state');
+            localStorage.removeItem('scraple_game_date');
+            localStorage.removeItem('scraple_game_results');
+            
+            // Keep the player ID as it's not related to the game state
+            // localStorage.removeItem('scraple_player_id');
+            
+            // Set the current data version
+            localStorage.setItem('scraple_data_version', '1.0.0');
+            
+            // Show a message to the user
+            alert('All game data has been reset. The page will now reload with a fresh game.');
+            
+            // Reload the page to start fresh
+            window.location.reload();
+        }
+    };
+
     return (
         <div className={styles.popup}>
             <p>
@@ -21,6 +54,18 @@ const InfoPopup = ({ onClose }) => {
                 <a title="X" href="https://x.com/fifltriggi" target="_blank" rel="noopener noreferrer">
                     <FaXTwitter />
                 </a>
+            </div>
+            <p>
+                Puzzles reset daily at 12:00 AM Eastern Time
+            </p>
+            <div className={styles.resetContainer}>
+                <button 
+                    onClick={resetAllGameData}
+                    className={styles.resetButton}
+                    disabled={isResetting}
+                >
+                    Reset All Game Data
+                </button>
             </div>
         </div>
     );
