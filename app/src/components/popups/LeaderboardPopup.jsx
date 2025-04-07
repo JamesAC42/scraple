@@ -10,6 +10,7 @@ const LeaderboardPopup = ({ onClose }) => {
   const [error, setError] = useState(null);
   const [playerId, setPlayerId] = useState(null);
   const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
+  const [totalScores, setTotalScores] = useState(null);
   
   useEffect(() => {
     // Check if the user has submitted their score
@@ -22,6 +23,9 @@ const LeaderboardPopup = ({ onClose }) => {
     
     if (!!gameResults) {
       fetchLeaderboard(storedPlayerId);
+    } else {
+      // If user hasn't submitted a score, fetch just the total number of scores
+      fetchTotalScores();
     }
   }, []);
   
@@ -46,17 +50,55 @@ const LeaderboardPopup = ({ onClose }) => {
     }
   };
   
-  const handleRefresh = () => {
-    fetchLeaderboard(playerId);
+  const fetchTotalScores = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('/api/leaderboard/total');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch total scores: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setTotalScores(data.totalScores);
+    } catch (error) {
+      console.error('Error fetching total scores:', error);
+      setError('Failed to load leaderboard data. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
   
-  // If the user hasn't submitted their score, show a message
+  const handleRefresh = () => {
+    if (hasSubmittedScore) {
+      fetchLeaderboard(playerId);
+    } else {
+      fetchTotalScores();
+    }
+  };
+  
+  // If the user hasn't submitted their score, show a message with total scores
   if (!hasSubmittedScore) {
     return (
       <div className={styles.leaderboardContainer}>
-        <div className={styles.emptyMessage}>
-          You need to submit your score before you can view the leaderboard.
+        <div className={styles.leaderboardHeader}>
+          <h3>Today's Leaderboard</h3>
+          <button className={styles.refreshButton} onClick={handleRefresh}>
+            <IoMdRefresh />
+          </button>
         </div>
+        
+        {isLoading ? (
+          <div className={styles.loadingSpinner}></div>
+        ) : error ? (
+          <div className={styles.errorMessage}>{error}</div>
+        ) : (
+          <div className={styles.emptyMessage}>
+            Submit your game and see how you rank against {totalScores} other {totalScores === 1 ? 'player' : 'players'} today!
+          </div>
+        )}
       </div>
     );
   }

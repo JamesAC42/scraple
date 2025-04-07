@@ -170,7 +170,7 @@ const getLeaderboard = async (req, res) => {
       }
       
       // Get game states for the top 100 players
-      const topPlayerIds = allScores.slice(0, 100).map(item => item.value);
+      const topPlayerIds = allScores.slice(0, 300).map(item => item.value);
       const gameStates = {};
       
       if (topPlayerIds.length > 0) {
@@ -234,4 +234,44 @@ const getLeaderboard = async (req, res) => {
   }
 };
 
-module.exports = { submitScore, getLeaderboard }; 
+// Get total number of scores submitted for the day
+const getTotalScores = async (req, res) => {
+  try {
+    const redisClient = req.app.get('redisClient');
+    
+    // Check if Redis is available
+    if (!redisClient || !redisClient.isOpen) {
+      return res.status(503).json({ error: 'Leaderboard service unavailable' });
+    }
+    
+    const today = getFormattedDate();
+    const redisKey = `${REDIS_KEY_PREFIX}${today}`;
+    
+    try {
+      // Check if the sorted set exists
+      const keyExists = await redisClient.exists(redisKey);
+      if (!keyExists) {
+        return res.status(200).json({
+          totalScores: 0,
+          date: today
+        });
+      }
+      
+      // Get total number of members
+      const totalMembers = await redisClient.zCard(redisKey);
+      
+      res.status(200).json({
+        totalScores: totalMembers,
+        date: today
+      });
+    } catch (redisError) {
+      console.error('Redis operation error:', redisError);
+      res.status(500).json({ error: 'Redis operation failed', details: redisError.message });
+    }
+  } catch (error) {
+    console.error('Error getting total scores:', error);
+    res.status(500).json({ error: 'Failed to get total scores' });
+  }
+};
+
+module.exports = { submitScore, getLeaderboard, getTotalScores }; 

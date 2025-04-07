@@ -5,7 +5,7 @@ const app = express();
 
 const {createClient} = require('redis');
 const { getDailyPuzzle } = require('./controllers/getDailyPuzzle');
-const { submitScore, getLeaderboard } = require('./controllers/leaderboard');
+const { submitScore, getLeaderboard, getTotalScores } = require('./controllers/leaderboard');
 
 // Create Redis client with configuration
 const redisClient = createClient({
@@ -44,6 +44,7 @@ app.set('redisClient', redisClient);
 app.get('/api/daily-puzzle', getDailyPuzzle);
 app.post('/api/leaderboard/submit', submitScore);
 app.get('/api/leaderboard', getLeaderboard);
+app.get('/api/leaderboard/total', getTotalScores);
 
 // Connect to Redis before starting the server
 async function startServer() {
