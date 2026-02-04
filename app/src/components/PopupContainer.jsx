@@ -24,7 +24,7 @@ const PopupContainer = () => {
             case 'help':
                 return "How To Play";
             case 'leaderboard':
-                return "Daily Leaderboard";
+                return "Leaderboard";
             default:
                 return "";
         }

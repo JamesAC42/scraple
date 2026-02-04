@@ -11,10 +11,21 @@ const LeaderboardPopup = ({ onClose }) => {
   const [playerId, setPlayerId] = useState(null);
   const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
   const [totalScores, setTotalScores] = useState(null);
+  const [mode, setMode] = useState('daily');
+
+  const LEADERBOARD_MODE_KEY = 'scraple_leaderboard_mode';
+  const DAILY_RESULTS_KEY = 'scraple_game_results';
+  const BLITZ_RESULTS_KEY = 'scraple_blitz_game_results';
   
   useEffect(() => {
+    const storedMode = localStorage.getItem(LEADERBOARD_MODE_KEY);
+    setMode(storedMode === 'blitz' ? 'blitz' : 'daily');
+  }, []);
+
+  useEffect(() => {
     // Check if the user has submitted their score
-    const gameResults = localStorage.getItem('scraple_game_results');
+    const resultsKey = mode === 'blitz' ? BLITZ_RESULTS_KEY : DAILY_RESULTS_KEY;
+    const gameResults = localStorage.getItem(resultsKey);
     setHasSubmittedScore(!!gameResults);
     
     // Get player ID from localStorage
@@ -22,19 +33,25 @@ const LeaderboardPopup = ({ onClose }) => {
     setPlayerId(storedPlayerId);
     
     if (!!gameResults) {
-      fetchLeaderboard(storedPlayerId);
+      fetchLeaderboard(storedPlayerId, mode);
     } else {
       // If user hasn't submitted a score, fetch just the total number of scores
-      fetchTotalScores();
+      fetchTotalScores(mode);
     }
-  }, []);
+  }, [mode]);
+
+  const getModeEndpoints = (modeValue) => ({
+    leaderboard: modeValue === 'blitz' ? '/api/blitz/leaderboard' : '/api/leaderboard',
+    total: modeValue === 'blitz' ? '/api/blitz/leaderboard/total' : '/api/leaderboard/total'
+  });
   
-  const fetchLeaderboard = async (id) => {
+  const fetchLeaderboard = async (id, modeValue = mode) => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await fetch(`/api/leaderboard${id ? `?playerId=${id}` : ''}`);
+      const { leaderboard } = getModeEndpoints(modeValue);
+      const response = await fetch(`${leaderboard}${id ? `?playerId=${id}` : ''}`);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch leaderboard: ${response.status}`);
@@ -50,12 +67,13 @@ const LeaderboardPopup = ({ onClose }) => {
     }
   };
   
-  const fetchTotalScores = async () => {
+  const fetchTotalScores = async (modeValue = mode) => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await fetch('/api/leaderboard/total');
+      const { total } = getModeEndpoints(modeValue);
+      const response = await fetch(total);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch total scores: ${response.status}`);
@@ -73,10 +91,19 @@ const LeaderboardPopup = ({ onClose }) => {
   
   const handleRefresh = () => {
     if (hasSubmittedScore) {
-      fetchLeaderboard(playerId);
+      fetchLeaderboard(playerId, mode);
     } else {
-      fetchTotalScores();
+      fetchTotalScores(mode);
     }
+  };
+
+  const handleModeChange = (nextMode) => {
+    if (nextMode === mode) return;
+    localStorage.setItem(LEADERBOARD_MODE_KEY, nextMode);
+    setLeaderboard(null);
+    setTotalScores(null);
+    setError(null);
+    setMode(nextMode);
   };
   
   // If the user hasn't submitted their score, show a message with total scores
@@ -84,7 +111,21 @@ const LeaderboardPopup = ({ onClose }) => {
     return (
       <div className={styles.leaderboardContainer}>
         <div className={styles.leaderboardHeader}>
-          <h3>Today's Leaderboard</h3>
+          <h3>{mode === 'blitz' ? 'Blitz Leaderboard' : "Today's Leaderboard"}</h3>
+          <div className={styles.modeToggle}>
+            <button
+              className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''}`}
+              onClick={() => handleModeChange('daily')}
+            >
+              Daily
+            </button>
+            <button
+              className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''}`}
+              onClick={() => handleModeChange('blitz')}
+            >
+              Blitz
+            </button>
+          </div>
           <button className={styles.refreshButton} onClick={handleRefresh}>
             <IoMdRefresh />
           </button>
@@ -202,7 +243,21 @@ const LeaderboardPopup = ({ onClose }) => {
   return (
     <div className={styles.leaderboardContainer}>
       <div className={styles.leaderboardHeader}>
-        <h3>Today's Leaderboard</h3>
+          <h3>{mode === 'blitz' ? 'Blitz Leaderboard' : "Today's Leaderboard"}</h3>
+          <div className={styles.modeToggle}>
+            <button
+              className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''}`}
+              onClick={() => handleModeChange('daily')}
+            >
+              Daily
+            </button>
+            <button
+              className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''}`}
+              onClick={() => handleModeChange('blitz')}
+            >
+              Blitz
+            </button>
+          </div>
         <div className={styles.totalPlayers}>
           {leaderboard.totalPlayers} {leaderboard.totalPlayers === 1 ? 'player' : 'players'} today
         </div>

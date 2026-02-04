@@ -5,7 +5,15 @@ const app = express();
 
 const {createClient} = require('redis');
 const { getDailyPuzzle } = require('./controllers/getDailyPuzzle');
-const { submitScore, getLeaderboard, getTotalScores } = require('./controllers/leaderboard');
+const { getBlitzPuzzle } = require('./controllers/getBlitzPuzzle');
+const { 
+  submitScore, 
+  getLeaderboard, 
+  getTotalScores,
+  submitBlitzScore,
+  getBlitzLeaderboard,
+  getBlitzTotalScores
+} = require('./controllers/leaderboard');
 
 // Create Redis client with configuration
 const redisClient = createClient({
@@ -42,9 +50,13 @@ app.set('redisClient', redisClient);
 
 // API routes
 app.get('/api/daily-puzzle', getDailyPuzzle);
+app.get('/api/blitz-puzzle', getBlitzPuzzle);
 app.post('/api/leaderboard/submit', submitScore);
 app.get('/api/leaderboard', getLeaderboard);
 app.get('/api/leaderboard/total', getTotalScores);
+app.post('/api/blitz/leaderboard/submit', submitBlitzScore);
+app.get('/api/blitz/leaderboard', getBlitzLeaderboard);
+app.get('/api/blitz/leaderboard/total', getBlitzTotalScores);
 
 // Connect to Redis before starting the server
 async function startServer() {
