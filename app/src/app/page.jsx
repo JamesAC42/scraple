@@ -68,10 +68,9 @@ const getScoreRating = (score) => {
 
 // Format date as YYYY-MM-DD in Eastern Time
 const getFormattedDate = () => {
-  const date = new Date();
-  const options = { timeZone: 'America/New_York' };
-  const etDate = new Date(date.toLocaleString('en-US', options));
-  return etDate.toISOString().split('T')[0];
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York'
+  }).format(new Date());
 };
 
 // Format date for display (Month Day, Year)
@@ -157,6 +156,7 @@ export default function Home() {
   const [isFetchingWordBreakdown, setIsFetchingWordBreakdown] = useState(false);
   const [playerId, setPlayerId] = useState(null);
   const [dailyCompleted, setDailyCompleted] = useState(false);
+  const [blitzCompleted, setBlitzCompleted] = useState(false);
   const [wordBreakdown, setWordBreakdown] = useState([]);
   const [hasRequestedWordBreakdown, setHasRequestedWordBreakdown] = useState(false);
 
@@ -181,6 +181,14 @@ export default function Home() {
     if (typeof window === 'undefined') return false;
     const savedResults = localStorage.getItem(GAME_RESULTS_KEY);
     const savedDate = localStorage.getItem(GAME_DATE_KEY);
+    const today = getFormattedDate();
+    return !!savedResults && savedDate === today;
+  };
+
+  const checkBlitzCompleted = () => {
+    if (typeof window === 'undefined') return false;
+    const savedResults = localStorage.getItem(BLITZ_GAME_RESULTS_KEY);
+    const savedDate = localStorage.getItem(BLITZ_GAME_DATE_KEY);
     const today = getFormattedDate();
     return !!savedResults && savedDate === today;
   };
@@ -436,6 +444,9 @@ export default function Home() {
         setValidationError('Finish the daily puzzle to unlock Blitz Mode.');
         return false;
       }
+      if (forceNewPuzzle && checkBlitzCompleted()) {
+        forceNewPuzzle = false;
+      }
       const { storageKey, dateKey, resultsKey, puzzleIdKey, startTimeKey } = getModeStorage('blitz');
       try {
         const savedState = localStorage.getItem(storageKey);
@@ -463,8 +474,50 @@ export default function Home() {
 
           if (savedResults) {
             setGameResults(JSON.parse(savedResults));
+            setBlitzCompleted(true);
+          } else if (gameFinished && playerId) {
+            try {
+              const { leaderboardQuery } = getModeEndpoints('blitz');
+              const leaderboardResponse = await fetch(`${leaderboardQuery}?playerId=${playerId}`);
+              if (leaderboardResponse.ok) {
+                const leaderboardData = await leaderboardResponse.json();
+                const playerEntry = Array.isArray(leaderboardData?.scores)
+                  ? leaderboardData.scores.find((entry) => entry.playerId === playerId)
+                  : null;
+                const persistedGameState = playerEntry?.gameState || null;
+
+                if (persistedGameState && typeof persistedGameState.totalScore === 'number') {
+                  const recoveredResults = {
+                    totalScore: persistedGameState.totalScore,
+                    words: Array.isArray(persistedGameState.words) ? persistedGameState.words : []
+                  };
+                  setGameResults(recoveredResults);
+                  localStorage.setItem(resultsKey, JSON.stringify(recoveredResults));
+                  setBlitzCompleted(true);
+                } else if (leaderboardData?.playerInfo && typeof leaderboardData.playerInfo.score === 'number') {
+                  const recoveredResults = {
+                    totalScore: leaderboardData.playerInfo.score,
+                    words: []
+                  };
+                  setGameResults(recoveredResults);
+                  localStorage.setItem(resultsKey, JSON.stringify(recoveredResults));
+                  setBlitzCompleted(true);
+                } else {
+                  setGameResults(null);
+                  setBlitzCompleted(false);
+                }
+              } else {
+                setGameResults(null);
+                setBlitzCompleted(false);
+              }
+            } catch (recoveryError) {
+              console.error('Error recovering blitz results from leaderboard:', recoveryError);
+              setGameResults(null);
+              setBlitzCompleted(false);
+            }
           } else {
             setGameResults(null);
+            setBlitzCompleted(false);
           }
 
           if (savedStartTime) {
@@ -498,6 +551,7 @@ export default function Home() {
           setPuzzleId(blitzPuzzle.puzzleId || null);
           setBlitzTimeLeft(BLITZ_DURATION_SECONDS);
           blitzAutoSubmitRef.current = false;
+          setBlitzCompleted(false);
 
           const newGameState = {
             letters: blitzPuzzle.letters,
@@ -541,7 +595,7 @@ export default function Home() {
   // Reset the game state
   const resetGame = async () => {
     if (isBlitzMode) {
-      await loadBlitzGameState({ forceNewPuzzle: true });
+      await loadBlitzGameState({ forceNewPuzzle: !checkBlitzCompleted() });
       return;
     }
     // Fetch the current day's puzzle again
@@ -654,6 +708,7 @@ export default function Home() {
       try {
         setGameMode('daily');
         setDailyCompleted(checkDailyCompleted());
+        setBlitzCompleted(checkBlitzCompleted());
         const hasLoadedState = await loadGameState('daily');
         
         // If no saved state was loaded, the loadGameState function will have fetched a new puzzle
@@ -1067,6 +1122,8 @@ export default function Home() {
       }
       if (gameMode === 'daily') {
         setDailyCompleted(true);
+      } else if (gameMode === 'blitz') {
+        setBlitzCompleted(true);
       }
       
       const { storageKey, dateKey, resultsKey, puzzleIdKey } = getModeStorage(gameMode);
@@ -1315,6 +1372,48 @@ export default function Home() {
   }, [isGameFinished, gameResults, playerId, leaderboardInfo, gameMode]);
 
   useEffect(() => {
+    const recoverBlitzResults = async () => {
+      if (!isBlitzMode || !isGameFinished || gameResults || !playerId) return;
+      try {
+        const { leaderboardQuery } = getModeEndpoints('blitz');
+        const response = await fetch(`${leaderboardQuery}?playerId=${playerId}`);
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const playerEntry = Array.isArray(data?.scores)
+          ? data.scores.find((entry) => entry.playerId === playerId)
+          : null;
+        const persistedGameState = playerEntry?.gameState || null;
+
+        if (persistedGameState && typeof persistedGameState.totalScore === 'number') {
+          const recoveredResults = {
+            totalScore: persistedGameState.totalScore,
+            words: Array.isArray(persistedGameState.words) ? persistedGameState.words : []
+          };
+          setGameResults(recoveredResults);
+          localStorage.setItem(BLITZ_GAME_RESULTS_KEY, JSON.stringify(recoveredResults));
+          setBlitzCompleted(true);
+          return;
+        }
+
+        if (data?.playerInfo && typeof data.playerInfo.score === 'number') {
+          const recoveredResults = {
+            totalScore: data.playerInfo.score,
+            words: []
+          };
+          setGameResults(recoveredResults);
+          localStorage.setItem(BLITZ_GAME_RESULTS_KEY, JSON.stringify(recoveredResults));
+          setBlitzCompleted(true);
+        }
+      } catch (error) {
+        console.error('Error recovering blitz results:', error);
+      }
+    };
+
+    recoverBlitzResults();
+  }, [isBlitzMode, isGameFinished, gameResults, playerId]);
+
+  useEffect(() => {
     if (!isGameFinished || !gameResults || !playerId) return;
     if (isFetchingWordBreakdown) return;
     if (hasRequestedWordBreakdown || wordBreakdown.length > 0) return;
@@ -1427,8 +1526,8 @@ export default function Home() {
                 dailyCompleted && (
                   <button 
                     className={styles.gameHeaderButton}
-                    onClick={() => switchGameMode('blitz', { forceNewPuzzle: true })}
-                    title="Play Blitz Mode"
+                    onClick={() => switchGameMode('blitz')}
+                    title={blitzCompleted ? "Review Blitz Mode" : "Play Blitz Mode"}
                   >
                     <IoMdFlash />
                   </button>
@@ -1537,9 +1636,9 @@ export default function Home() {
               </div>
               <button
                 className={styles.blitzButton}
-                onClick={() => switchGameMode('blitz', { forceNewPuzzle: true })}
+                onClick={() => switchGameMode('blitz')}
               >
-                Play Blitz Mode
+                {blitzCompleted ? 'Review Game' : 'Play Blitz Mode'}
               </button>
             </div>
           )}
