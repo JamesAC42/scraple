@@ -58,13 +58,12 @@ const CURRENT_DATA_VERSION = '1.0.0';
 
 // Function to get emoji and descriptive word based on score
 const getScoreRating = (score) => {
-  if (score <= 0) return { emoji: "😢", description: "Better luck next time" };
-  if (score < 20) return { emoji: "🙂", description: "Nice try" };
-  if (score < 40) return { emoji: "👍", description: "Good" };
-  if (score < 60) return { emoji: "👏", description: "Great" };
-  if (score < 80) return { emoji: "🔥", description: "Excellent" };
-  if (score < 100) return { emoji: "💯", description: "Outstanding" };
-  return { emoji: "🏆", description: "Legendary" };
+  if (score < 50) return { emoji: "🙂", description: "You tried" };
+  if (score < 80) return { emoji: "👍", description: "Good start" };
+  if (score < 110) return { emoji: "👏", description: "Great" };
+  if (score < 140) return { emoji: "🔥", description: "Excellent" };
+  if (score < 170) return { emoji: "💯", description: "Outstanding" };
+  return { emoji: "🏆", description: "Exceptional" };
 };
 
 // Format date as YYYY-MM-DD in Eastern Time
@@ -95,6 +94,40 @@ const formatBlitzTime = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
+const renderFormattedDefinition = (definition, styles) => {
+  if (!definition) return null;
+
+  const segments = definition.split(/(\([^)]+\)|\[[^\]]+\])/g).filter(Boolean);
+  return segments.map((segment, index) => {
+    const parenMatch = segment.match(/^\((.*)\)$/);
+    if (parenMatch) {
+      return (
+        <span key={`def-${index}`} className={styles.definitionParen}>
+          (<strong>{parenMatch[1]}</strong>)
+        </span>
+      );
+    }
+
+    const bracketMatch = segment.match(/^\[(.*)\]$/);
+    if (bracketMatch) {
+      return (
+        <span key={`def-${index}`} className={styles.definitionBracket}>
+          [{bracketMatch[1]}]
+        </span>
+      );
+    }
+
+    return <span key={`def-${index}`}>{segment}</span>;
+  });
+};
+
+const bonusTileLabels = {
+  DOUBLE_LETTER: "2L",
+  TRIPLE_LETTER: "3L",
+  DOUBLE_WORD: "2W",
+  TRIPLE_WORD: "3W"
+};
+
 export default function Home() {
   // Initialize letters state with empty array
   const [letters, setLetters] = useState([]);
@@ -121,8 +154,11 @@ export default function Home() {
   // New state variables for leaderboard
   const [leaderboardInfo, setLeaderboardInfo] = useState(null);
   const [isSubmittingScore, setIsSubmittingScore] = useState(false);
+  const [isFetchingWordBreakdown, setIsFetchingWordBreakdown] = useState(false);
   const [playerId, setPlayerId] = useState(null);
   const [dailyCompleted, setDailyCompleted] = useState(false);
+  const [wordBreakdown, setWordBreakdown] = useState([]);
+  const [hasRequestedWordBreakdown, setHasRequestedWordBreakdown] = useState(false);
 
   const [showFinishPopup, setShowFinishPopup] = useState(false);
   const [shareMessage, setShareMessage] = useState('');
@@ -166,7 +202,8 @@ export default function Home() {
       puzzleEndpoint: isBlitz ? '/api/blitz-puzzle' : '/api/daily-puzzle',
       leaderboardSubmit: isBlitz ? '/api/blitz/leaderboard/submit' : '/api/leaderboard/submit',
       leaderboardQuery: isBlitz ? '/api/blitz/leaderboard' : '/api/leaderboard',
-      leaderboardTotal: isBlitz ? '/api/blitz/leaderboard/total' : '/api/leaderboard/total'
+      leaderboardTotal: isBlitz ? '/api/blitz/leaderboard/total' : '/api/leaderboard/total',
+      wordBreakdownEndpoint: isBlitz ? '/api/blitz/leaderboard/word-breakdown' : '/api/leaderboard/word-breakdown'
     };
   };
   
@@ -226,6 +263,8 @@ export default function Home() {
             setUsedTileIds([]);
             setIsGameFinished(false);
             setGameResults(null);
+            setWordBreakdown([]);
+            setHasRequestedWordBreakdown(false);
             
             // Save the new state with the server's date
             const newGameState = {
@@ -298,6 +337,8 @@ export default function Home() {
           setUsedTileIds([]);
           setIsGameFinished(false);
           setGameResults(null);
+          setWordBreakdown([]);
+          setHasRequestedWordBreakdown(false);
           
           // Save the new state with the server's date
           const newGameState = {
@@ -354,6 +395,8 @@ export default function Home() {
           setLetters(parsedState.letters || []);
           setPlacedTiles(parsedState.placedTiles || {});
           setUsedTileIds(parsedState.usedTileIds || []);
+          setWordBreakdown([]);
+          setHasRequestedWordBreakdown(false);
           
           // Explicitly check for isGameFinished
           const gameFinished = parsedState.isGameFinished === true;
@@ -450,6 +493,8 @@ export default function Home() {
           setIsGameFinished(false);
           setGameResults(null);
           setLeaderboardInfo(null);
+          setWordBreakdown([]);
+          setHasRequestedWordBreakdown(false);
           setPuzzleId(blitzPuzzle.puzzleId || null);
           setBlitzTimeLeft(BLITZ_DURATION_SECONDS);
           blitzAutoSubmitRef.current = false;
@@ -513,6 +558,8 @@ export default function Home() {
       setIsGameFinished(false);
       setGameResults(null);
       setLeaderboardInfo(null);
+      setWordBreakdown([]);
+      setHasRequestedWordBreakdown(false);
       
       // Clear results from localStorage
       if (typeof window !== 'undefined') {
@@ -545,6 +592,8 @@ export default function Home() {
     }
     setGameMode(mode);
     setLeaderboardInfo(null);
+    setWordBreakdown([]);
+    setHasRequestedWordBreakdown(false);
     setValidationError('');
     setInvalidPlacement(false);
     await loadGameState(mode, { forceNewPuzzle });
@@ -553,6 +602,8 @@ export default function Home() {
   const forceDailyMode = async () => {
     setGameMode('daily');
     setLeaderboardInfo(null);
+    setWordBreakdown([]);
+    setHasRequestedWordBreakdown(false);
     setValidationError('');
     setInvalidPlacement(false);
     await loadGameState('daily');
@@ -954,6 +1005,33 @@ export default function Home() {
       setIsSubmittingScore(false);
     }
   };
+
+  const fetchWordBreakdown = async (mode = gameMode) => {
+    if (!playerId) return;
+
+    setIsFetchingWordBreakdown(true);
+    setHasRequestedWordBreakdown(true);
+    try {
+      const { wordBreakdownEndpoint } = getModeEndpoints(mode);
+      const params = new URLSearchParams({ playerId });
+      if (mode === 'blitz' && puzzleId) {
+        params.set('puzzleId', puzzleId);
+      }
+
+      const response = await fetch(`${wordBreakdownEndpoint}?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch word breakdown: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setWordBreakdown(Array.isArray(data.words) ? data.words : []);
+    } catch (error) {
+      console.error('Error fetching word breakdown:', error);
+      setWordBreakdown([]);
+    } finally {
+      setIsFetchingWordBreakdown(false);
+    }
+  };
   
   const finalizeGame = async ({ skipValidation = false } = {}) => {
     if (!skipValidation) {
@@ -977,10 +1055,13 @@ export default function Home() {
       // Update state with results
       setGameResults(results);
       setIsGameFinished(true);
+      setWordBreakdown([]);
+      setHasRequestedWordBreakdown(false);
       setShowFinishPopup(false);
       
       // Submit score to leaderboard
       await submitScoreToLeaderboard(results, gameMode);
+      await fetchWordBreakdown(gameMode);
       if (typeof window !== 'undefined') {
         localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode);
       }
@@ -1232,6 +1313,13 @@ export default function Home() {
     
     fetchLeaderboardInfo();
   }, [isGameFinished, gameResults, playerId, leaderboardInfo, gameMode]);
+
+  useEffect(() => {
+    if (!isGameFinished || !gameResults || !playerId) return;
+    if (isFetchingWordBreakdown) return;
+    if (hasRequestedWordBreakdown || wordBreakdown.length > 0) return;
+    fetchWordBreakdown(gameMode);
+  }, [isGameFinished, gameResults, playerId, gameMode, puzzleId, wordBreakdown.length, isFetchingWordBreakdown, hasRequestedWordBreakdown]);
   
   // Add a new useEffect to show the help popup on first visit
   useEffect(() => {
@@ -1518,14 +1606,76 @@ export default function Home() {
               </div>
               
               <div className={styles.wordsContainer}>
-                <h3>Words Found:</h3>
-                <ul className={styles.wordsList}>
-                  {gameResults.words.map((wordResult, index) => (
-                    <li key={index} className={`${styles.wordItem} ${wordResult.valid ? styles.validWord : styles.invalidWord}`}>
-                      <span className={styles.wordText}>{wordResult.word}</span>
-                      <span className={styles.wordScore}>
-                        {wordResult.score >= 0 ? '+' : ''}{wordResult.score}
-                      </span>
+                <h3>Word Breakdown</h3>
+                {isFetchingWordBreakdown && (
+                  <div className={styles.wordsLoading}>Loading definitions and usage stats...</div>
+                )}
+                {!isFetchingWordBreakdown && wordBreakdown.length === 0 && (
+                  <div className={styles.wordsLoading}>Showing your scores while detailed stats load.</div>
+                )}
+                <ul className={styles.breakdownList}>
+                  {((wordBreakdown.length > 0
+                    ? wordBreakdown
+                    : (Array.isArray(leaderboardInfo?.words) ? leaderboardInfo.words : gameResults.words).map((wordResult) => ({
+                        ...wordResult,
+                        definition: null,
+                        playedByOthersCount: null,
+                        averageScoreAmongPlayers: null,
+                        usedBonusTypes: [],
+                        bonusPraise: null,
+                        isHighScoringSpecial: wordResult.valid && wordResult.score > 50,
+                        isUniqueTodaySpecial: false,
+                        isSpecial: wordResult.valid && wordResult.score > 50
+                      }))
+                  )).map((wordResult, index) => (
+                    <li
+                      key={`${wordResult.word}-${index}`}
+                      className={`${styles.breakdownItem} ${wordResult.valid ? styles.validWord : styles.invalidWord}`}
+                    >
+                      <div className={styles.breakdownTopRow}>
+                        <div className={styles.wordText}>{wordResult.word}</div>
+                        <div className={styles.wordTopRight}>
+                          <div className={styles.wordScore}>
+                            {wordResult.score >= 0 ? '+' : ''}{wordResult.score}
+                          </div>
+                          {Array.isArray(wordResult.usedBonusTypes) && wordResult.usedBonusTypes.length > 0 && (
+                            <div className={styles.bonusTileIcons}>
+                              {wordResult.usedBonusTypes.map((bonusType) => (
+                                <span key={`${wordResult.word}-${bonusType}`} className={`${styles.bonusTileIcon} ${styles[`bonus${bonusType}`]}`}>
+                                  {bonusTileLabels[bonusType] || bonusType}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {wordResult.bonusPraise && (
+                        <div className={styles.bonusPraise}>
+                          <span className={styles.praiseIcon}>★</span>
+                          {wordResult.bonusPraise}
+                        </div>
+                      )}
+                      <div className={styles.breakdownDefinition}>
+                        {wordResult.definition
+                          ? renderFormattedDefinition(wordResult.definition, styles)
+                          : (wordResult.valid ? 'Definition unavailable.' : 'Not a valid dictionary word.')}
+                      </div>
+                      <div className={styles.breakdownMeta}>
+                        {wordResult.playedByOthersCount === null
+                          ? 'Usage stats loading...'
+                          : `${wordResult.playedByOthersCount} other player${wordResult.playedByOthersCount === 1 ? '' : 's'} used this word today`}
+                      </div>
+                      <div className={styles.breakdownMetaSecondary}>
+                        {typeof wordResult.averageScoreAmongPlayers === 'number'
+                          ? `Average score of players who used this word: ${wordResult.averageScoreAmongPlayers.toFixed(2)}`
+                          : 'Average score of players who used this word: loading...'}
+                      </div>
+                      {(wordResult.isHighScoringSpecial || wordResult.isUniqueTodaySpecial) && (
+                        <div className={styles.specialTags}>
+                          {wordResult.isHighScoringSpecial && <span className={`${styles.specialTag} ${styles.specialTagHigh}`}>50+ POINT WORD</span>}
+                          {wordResult.isUniqueTodaySpecial && <span className={`${styles.specialTag} ${styles.specialTagUnique}`}>UNIQUE TODAY</span>}
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

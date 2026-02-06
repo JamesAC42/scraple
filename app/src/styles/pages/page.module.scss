@@ -458,48 +458,216 @@
             margin-bottom: 0.75rem;
             font-weight: 600;
         }
-        
-        .wordsList {
+
+        .wordsLoading {
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+            color: var(--secondary);
+        }
+
+        .breakdownList {
             list-style: none;
             padding: 0;
-            display: flex;
-            flex-wrap: wrap;
+            display: grid;
             gap: 0.75rem;
-            
-            .wordItem {
-                display: flex;
-                align-items: center;
-                padding: 0.5rem 1rem;
-                border-radius: 0.25rem;
-                font-weight: 500;
-                
+
+            .breakdownItem {
+                padding: 0.75rem 1rem;
+                border-radius: 0.4rem;
+
                 &.validWord {
-                    background-color: rgba(43, 200, 40, 0.15);
+                    background-color: rgba(43, 200, 40, 0.12);
                     border: 1px solid rgba(43, 200, 40, 0.3);
                 }
-                
+
                 &.invalidWord {
-                    background-color: rgba(224, 66, 66, 0.15);
-                    border: 1px solid rgba(224, 66, 66, 0.3);
-                    text-decoration: line-through;
+                    background-color: rgba(224, 66, 66, 0.12);
+                    border: 1px solid rgba(224, 66, 66, 0.35);
                 }
-                
-                .wordText {
-                    margin-right: 0.5rem;
-                    text-transform: uppercase;
-                    letter-spacing: 0.05rem;
+            }
+
+            .breakdownTopRow {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                margin-bottom: 0.35rem;
+            }
+
+            .wordTopRight {
+                display: flex;
+                align-items: center;
+                gap: 0.45rem;
+            }
+
+            .wordText {
+                text-transform: uppercase;
+                letter-spacing: 0.05rem;
+                font-weight: 700;
+                font-size: 1.05rem;
+            }
+
+            .wordScore {
+                font-weight: 800;
+
+                .validWord & {
+                    color: #2bc828;
                 }
-                
-                .wordScore {
-                    font-weight: 700;
-                    
-                    .validWord & {
-                        color: #2bc828;
+
+                .invalidWord & {
+                    color: #e04242;
+                }
+            }
+
+            .bonusTileIcons {
+                display: inline-flex;
+                gap: 0.25rem;
+                align-items: center;
+            }
+
+            .bonusTileIcon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 1.8rem;
+                height: 1.2rem;
+                border-radius: 0.3rem;
+                font-size: 0.68rem;
+                font-weight: 800;
+                border: 1px solid transparent;
+                line-height: 1;
+            }
+
+            .bonusDOUBLE_LETTER {
+                background-color: #d7f0ff;
+                color: #04517a;
+                border-color: #89caea;
+            }
+
+            .bonusTRIPLE_LETTER {
+                background-color: #ffe0d5;
+                color: #842f00;
+                border-color: #f3a67f;
+            }
+
+            .bonusDOUBLE_WORD {
+                background-color: #e8ddff;
+                color: #4d2d8a;
+                border-color: #baa0ea;
+            }
+
+            .bonusTRIPLE_WORD {
+                background-color: #ffdce4;
+                color: #8a1f45;
+                border-color: #ef9db6;
+            }
+
+            .bonusPraise {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.28rem;
+                margin-bottom: 0.35rem;
+                font-size: 0.86rem;
+                font-weight: 900;
+                text-transform: uppercase;
+                background: linear-gradient(90deg, #f38c00, #ef3f00, #f38c00);
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
+                letter-spacing: 0.02rem;
+                text-shadow: 0 0 10px rgba(243, 140, 0, 0.32);
+                animation: praisePulse 1s ease-in-out infinite;
+            }
+
+            .praiseIcon {
+                color: #ff9200;
+                text-shadow: 0 0 8px rgba(255, 146, 0, 0.55);
+                animation: praiseSpark 0.8s ease-in-out infinite alternate;
+            }
+
+            .breakdownDefinition {
+                margin-bottom: 0.35rem;
+                color: var(--text);
+                font-size: 0.95rem;
+                line-height: 1.4;
+
+                .definitionParen {
+                    strong {
+                        font-weight: 800;
                     }
-                    
-                    .invalidWord & {
-                        color: #e04242;
-                    }
+                }
+
+                .definitionBracket {
+                    color: rgba(90, 90, 90, 0.7);
+                }
+            }
+
+            .breakdownMeta {
+                font-size: 0.85rem;
+                color: var(--secondary);
+            }
+
+            .breakdownMetaSecondary {
+                margin-top: 0.15rem;
+                font-size: 0.82rem;
+                color: var(--secondary);
+            }
+
+            .specialTags {
+                margin-top: 0.5rem;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.4rem;
+            }
+
+            .specialTag {
+                position: relative;
+                overflow: hidden;
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.04rem;
+                border-radius: 999px;
+                padding: 0.18rem 0.58rem;
+                text-transform: uppercase;
+                transition: transform 0.15s ease;
+                box-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.12);
+            }
+
+            .specialTagHigh {
+                background: linear-gradient(135deg, #ffe28a, #ffc23a);
+                border: 1px solid #d78b00;
+                color: #5f3300;
+
+                &::after {
+                    content: "";
+                    position: absolute;
+                    top: -30%;
+                    left: -45%;
+                    width: 35%;
+                    height: 160%;
+                    background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+                    transform: skewX(-20deg) translateX(-260%);
+                    animation: tagShine 2.2s linear infinite;
+                    pointer-events: none;
+                }
+            }
+
+            .specialTagUnique {
+                background: linear-gradient(135deg, #9ce8ff, #5fc9ff);
+                border: 1px solid #008dbf;
+                color: #00496a;
+
+                &::after {
+                    content: "";
+                    position: absolute;
+                    top: -30%;
+                    left: -45%;
+                    width: 35%;
+                    height: 160%;
+                    background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+                    transform: skewX(-20deg) translateX(-260%);
+                    animation: tagShine 2.2s linear infinite;
+                    animation-delay: 0.2s;
+                    pointer-events: none;
                 }
             }
         }
@@ -539,13 +707,47 @@
             h3 {
                 font-size: 1.1rem;
             }
-            
-            .wordsList {
+
+            .breakdownList {
                 gap: 0.5rem;
-                
-                .wordItem {
-                    padding: 0.4rem 0.75rem;
-                    font-size: 0.9rem;
+
+                .breakdownItem {
+                    padding: 0.55rem 0.7rem;
+                }
+
+                .wordText {
+                    font-size: 0.95rem;
+                }
+
+                .wordTopRight {
+                    gap: 0.3rem;
+                }
+
+                .bonusTileIcon {
+                    min-width: 1.6rem;
+                    height: 1.1rem;
+                    font-size: 0.62rem;
+                }
+
+                .bonusPraise {
+                    font-size: 0.8rem;
+                }
+
+                .breakdownDefinition {
+                    font-size: 0.88rem;
+                }
+
+                .breakdownMeta {
+                    font-size: 0.8rem;
+                }
+
+                .breakdownMetaSecondary {
+                    font-size: 0.78rem;
+                }
+
+                .specialTag {
+                    font-size: 0.66rem;
+                    padding: 0.1rem 0.45rem;
                 }
             }
         }
@@ -631,6 +833,36 @@
   
   &:hover {
     background-color: #1a68d1;
+  }
+}
+
+@keyframes tagShine {
+  0% {
+    transform: skewX(-20deg) translateX(-260%);
+  }
+  100% {
+    transform: skewX(-20deg) translateX(500%);
+  }
+}
+
+@keyframes praisePulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes praiseSpark {
+  0% {
+    transform: scale(1) rotate(-6deg);
+  }
+  100% {
+    transform: scale(1.12) rotate(6deg);
   }
 }
 

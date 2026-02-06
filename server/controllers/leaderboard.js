@@ -7,7 +7,12 @@ const REDIS_KEY_PREFIX = 'scraple:leaderboard:';
 const DAILY_PUZZLE_PREFIX = 'scraple:daily:';
 const BLITZ_LEADERBOARD_PREFIX = 'scraple:blitz:leaderboard:';
 const BLITZ_DAILY_PREFIX = 'scraple:blitz:daily:';
-const DICTIONARY_KEY = 'scraple:dictionary';
+const WORD_AVG_SCORE_SUFFIX = ':word-avg-score';
+const WORD_AVG_PLAYERS_SUFFIX = ':word-avg-score:players';
+const DICTIONARY_INFO_KEY = 'scraple:dictionary:info';
+const DICTIONARY_VERSION_KEY = 'scraple:dictionary:version';
+const DICTIONARY_VERSION = 'collins-2019-defs-v2';
+const DICTIONARY_MIN_EXPECTED_SIZE = 200000;
 
 // Letter points mapping
 const letterPoints = {
@@ -21,25 +26,62 @@ const letterPoints = {
   '': 0 // Blank tile
 };
 
-// Function to initialize dictionary in Redis if it doesn't exist
+const parseDictionaryLine = (line) => {
+  if (!line || !line.trim()) return null;
+  if (line.startsWith('Collins Scrabble Words')) return null;
+  const parts = line.split('\t');
+  if (parts.length < 2) return null;
+  const word = parts[0].trim().toLowerCase();
+  const definition = parts.slice(1).join('\t').trim();
+  if (!word || !definition) return null;
+  return { word, definition };
+};
+
+// Function to initialize dictionary in Redis if it doesn't exist or version changes
 const initializeDictionary = async (redisClient) => {
   try {
-    // Check if dictionary exists in Redis
-    const exists = await redisClient.exists(DICTIONARY_KEY);
-    if (exists) {
-      return; // Dictionary already initialized
+    const existingVersion = await redisClient.get(DICTIONARY_VERSION_KEY);
+    const infoSize = await redisClient.hLen(DICTIONARY_INFO_KEY);
+    const hasInfo = infoSize > 0;
+    if (
+      existingVersion === DICTIONARY_VERSION &&
+      hasInfo &&
+      infoSize >= DICTIONARY_MIN_EXPECTED_SIZE
+    ) {
+      return;
     }
 
-    // Read dictionary file
-    const dictionaryPath = path.join(__dirname, '..', 'dictionary.txt');
+    await redisClient.del('scraple:dictionary', DICTIONARY_INFO_KEY, DICTIONARY_VERSION_KEY);
+
+    // Read dictionary file with definitions
+    const dictionaryPath = path.join(__dirname, '..', '..', 'Collins Scrabble Words (2019) with definitions.txt');
     const dictionaryContent = fs.readFileSync(dictionaryPath, 'utf8');
-    const words = dictionaryContent.split('\n').map(word => word.trim().toLowerCase());
+    const lines = dictionaryContent.split('\n');
 
-    // Add words to Redis set
-    if (words.length > 0) {
-      await redisClient.sAdd(DICTIONARY_KEY, words);
-      console.log(`Initialized dictionary with ${words.length} words`);
+    const infoEntries = [];
+
+    for (const line of lines) {
+      const parsed = parseDictionaryLine(line);
+      if (!parsed) continue;
+      infoEntries.push(parsed);
     }
+
+    const chunkSize = 1000;
+    for (let i = 0; i < infoEntries.length; i += chunkSize) {
+      const infoChunk = infoEntries.slice(i, i + chunkSize);
+      const infoPairs = [];
+      for (const entry of infoChunk) {
+        infoPairs.push(entry.word, entry.definition);
+      }
+      if (infoPairs.length > 0) {
+        // Use HMSET for maximum Redis-version compatibility.
+        await redisClient.sendCommand(['HMSET', DICTIONARY_INFO_KEY, ...infoPairs]);
+      }
+    }
+
+    const finalSize = await redisClient.hLen(DICTIONARY_INFO_KEY);
+    await redisClient.set(DICTIONARY_VERSION_KEY, DICTIONARY_VERSION);
+    console.log(`Initialized dictionary with ${infoEntries.length} words and definitions (stored: ${finalSize})`);
   } catch (error) {
     console.error('Error initializing dictionary:', error);
     throw error;
@@ -53,11 +95,22 @@ const isValidWord = async (redisClient, word) => {
     // Ensure dictionary is initialized
     await initializeDictionary(redisClient);
     
-    // Check if word exists in Redis set
-    return await redisClient.sIsMember(DICTIONARY_KEY, word.toLowerCase());
+    // Check if word exists in Redis hash
+    return await redisClient.hExists(DICTIONARY_INFO_KEY, word.toLowerCase());
   } catch (error) {
     console.error('Error checking word validity:', error);
     return false;
+  }
+};
+
+// Function to get word definition/info from Redis
+const getWordInfo = async (redisClient, word) => {
+  try {
+    await initializeDictionary(redisClient);
+    return await redisClient.hGet(DICTIONARY_INFO_KEY, word.toLowerCase());
+  } catch (error) {
+    console.error('Error getting word info:', error);
+    return null;
   }
 };
 
@@ -284,6 +337,260 @@ const validateBlitzGameState = async (redisClient, gameState) => {
   return validateGameStateWithPuzzle(redisClient, gameState, puzzle, { allowEmptyTiles: true });
 };
 
+const getWordAverageKeys = (redisKey) => ({
+  avgKey: `${redisKey}${WORD_AVG_SCORE_SUFFIX}`,
+  playersKey: `${redisKey}${WORD_AVG_PLAYERS_SUFFIX}`
+});
+
+const normalizeValidWordSet = (words = []) => {
+  return [...new Set(
+    words
+      .filter((entry) => entry && entry.valid)
+      .map((entry) => String(entry.word || '').toLowerCase())
+      .filter(Boolean)
+  )];
+};
+
+const parseWordAverageEntry = (raw) => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.sumScore !== 'number' || typeof parsed.count !== 'number') {
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+};
+
+const formatWordAverageEntry = (sumScore, count) => {
+  if (count <= 0) return null;
+  const avgScore = Number((sumScore / count).toFixed(2));
+  return JSON.stringify({ sumScore, count, avgScore });
+};
+
+const applyContributionToWordAverages = async (redisClient, avgKey, contribution, deltaSign) => {
+  if (!contribution || !Array.isArray(contribution.words)) return;
+  const signedScore = deltaSign * Number(contribution.totalScore || 0);
+
+  for (const word of contribution.words) {
+    const wordKey = String(word || '').toLowerCase();
+    if (!wordKey) continue;
+
+    const existingRaw = await redisClient.hGet(avgKey, wordKey);
+    const existing = parseWordAverageEntry(existingRaw) || { sumScore: 0, count: 0, avgScore: 0 };
+
+    const nextSum = existing.sumScore + signedScore;
+    const nextCount = existing.count + deltaSign;
+
+    if (nextCount <= 0) {
+      await redisClient.hDel(avgKey, wordKey);
+      continue;
+    }
+
+    const formatted = formatWordAverageEntry(nextSum, nextCount);
+    if (formatted) {
+      await redisClient.hSet(avgKey, wordKey, formatted);
+    }
+  }
+};
+
+const updateWordAverageStatsForSubmission = async ({
+  redisClient,
+  redisKey,
+  playerId,
+  totalScore,
+  words,
+  ttlSeconds
+}) => {
+  const { avgKey, playersKey } = getWordAverageKeys(redisKey);
+  const uniqueValidWords = normalizeValidWordSet(words);
+
+  const previousRaw = await redisClient.hGet(playersKey, playerId);
+  if (previousRaw) {
+    try {
+      const previous = JSON.parse(previousRaw);
+      await applyContributionToWordAverages(redisClient, avgKey, previous, -1);
+    } catch (error) {
+      // Ignore malformed previous entries; overwrite with current submission.
+    }
+  }
+
+  const currentContribution = {
+    totalScore: Number(totalScore),
+    words: uniqueValidWords
+  };
+
+  await applyContributionToWordAverages(redisClient, avgKey, currentContribution, 1);
+  await redisClient.hSet(playersKey, playerId, JSON.stringify(currentContribution));
+
+  if (ttlSeconds) {
+    await redisClient.expire(avgKey, ttlSeconds);
+    await redisClient.expire(playersKey, ttlSeconds);
+  }
+};
+
+const getUsedBonusTypesForWord = (positions = [], bonusTilePositions = {}) => {
+  const used = [];
+  const checks = [
+    ['DOUBLE_LETTER', bonusTilePositions.DOUBLE_LETTER],
+    ['TRIPLE_LETTER', bonusTilePositions.TRIPLE_LETTER],
+    ['DOUBLE_WORD', bonusTilePositions.DOUBLE_WORD],
+    ['TRIPLE_WORD', bonusTilePositions.TRIPLE_WORD]
+  ];
+
+  checks.forEach(([type, pos]) => {
+    if (!pos || pos.length < 2) return;
+    const [targetRow, targetCol] = pos;
+    const matches = positions.some((p) => p && p.row === targetRow && p.col === targetCol);
+    if (matches) used.push(type);
+  });
+
+  return used;
+};
+
+const getBonusPraiseForWord = (score, usedBonusTypes, valid) => {
+  if (!valid || !Array.isArray(usedBonusTypes) || usedBonusTypes.length === 0) return null;
+  if (score >= 60) return 'Genius!';
+  if (score >= 50) return 'Superb!';
+  if (score >= 40) return 'Excellent!';
+  if (score >= 30) return 'Great!';
+  return null;
+};
+
+const buildWordBreakdownForPlayer = async ({
+  redisClient,
+  redisKey,
+  statesKey,
+  playerId,
+  mode,
+  puzzleId
+}) => {
+  const getStoredOrCalculatedWords = async (state) => {
+    if (Array.isArray(state.words) && state.words.length > 0) {
+      return state.words.map((entry) => ({
+        word: String(entry.word || ''),
+        score: Number(entry.score) || 0,
+        valid: Boolean(entry.valid),
+        positions: Array.isArray(entry.positions) ? entry.positions : []
+      }));
+    }
+
+    const computed = await calculateTotalScore(
+      redisClient,
+      state.placedTiles || {},
+      state.bonusTilePositions || {}
+    );
+    return computed.words.map((entry) => ({
+      word: String(entry.word || ''),
+      score: Number(entry.score) || 0,
+      valid: Boolean(entry.valid),
+      positions: Array.isArray(entry.positions) ? entry.positions : []
+    }));
+  };
+
+  const playerStateRaw = await redisClient.hGet(statesKey, playerId);
+  if (!playerStateRaw) {
+    return null;
+  }
+
+  let playerState;
+  try {
+    playerState = JSON.parse(playerStateRaw);
+  } catch (error) {
+    throw new Error('Stored game state is invalid');
+  }
+
+  if (mode === 'blitz' && puzzleId && playerState.puzzleId && playerState.puzzleId !== puzzleId) {
+    throw new Error('Requested puzzleId does not match player state');
+  }
+
+  const playerWords = await getStoredOrCalculatedWords(playerState);
+
+  const allStateRows = await redisClient.hGetAll(statesKey);
+  const otherPlayerWordCounts = new Map();
+
+  for (const [otherPlayerId, stateRaw] of Object.entries(allStateRows)) {
+    if (otherPlayerId === playerId) continue;
+
+    let parsedState;
+    try {
+      parsedState = JSON.parse(stateRaw);
+    } catch (error) {
+      continue;
+    }
+
+    if (mode === 'blitz' && puzzleId && parsedState.puzzleId && parsedState.puzzleId !== puzzleId) {
+      continue;
+    }
+
+    try {
+      const otherWords = await getStoredOrCalculatedWords(parsedState);
+
+      const uniqueWordsForPlayer = new Set(
+        otherWords.map((wordEntry) => wordEntry.word.toLowerCase())
+      );
+
+      uniqueWordsForPlayer.forEach((word) => {
+        otherPlayerWordCounts.set(word, (otherPlayerWordCounts.get(word) || 0) + 1);
+      });
+    } catch (error) {
+      continue;
+    }
+  }
+
+  const uniquePlayerWords = [...new Set(playerWords.map((entry) => entry.word.toLowerCase()))];
+  const definitionMap = new Map();
+  const averageMap = new Map();
+  const { avgKey } = getWordAverageKeys(redisKey);
+
+  await Promise.all(
+    uniquePlayerWords.map(async (word) => {
+      const definition = await getWordInfo(redisClient, word);
+      definitionMap.set(word, definition);
+    })
+  );
+
+  if (uniquePlayerWords.length > 0) {
+    const averageEntries = await redisClient.sendCommand(['HMGET', avgKey, ...uniquePlayerWords]);
+    uniquePlayerWords.forEach((word, index) => {
+      const parsed = parseWordAverageEntry(averageEntries[index]);
+      averageMap.set(word, parsed && typeof parsed.avgScore === 'number' ? parsed.avgScore : null);
+    });
+  }
+
+  const words = playerWords.map((entry) => {
+    const key = entry.word.toLowerCase();
+    const playedByOthersCount = otherPlayerWordCounts.get(key) || 0;
+    const score = Number(entry.score);
+    const valid = Boolean(entry.valid);
+    const usedBonusTypes = getUsedBonusTypesForWord(entry.positions || [], playerState.bonusTilePositions || {});
+    const bonusPraise = getBonusPraiseForWord(score, usedBonusTypes, valid);
+    const isHighScoringSpecial = valid && score > 50;
+    const isUniqueTodaySpecial = valid && playedByOthersCount === 0;
+
+    return {
+      word: entry.word,
+      score,
+      valid,
+      definition: definitionMap.get(key) || null,
+      playedByOthersCount,
+      averageScoreAmongPlayers: averageMap.get(key),
+      usedBonusTypes,
+      bonusPraise,
+      isHighScoringSpecial,
+      isUniqueTodaySpecial,
+      isSpecial: isHighScoringSpecial || isUniqueTodaySpecial
+    };
+  });
+
+  return {
+    words,
+    totalWords: words.length
+  };
+};
+
 // Submit score to leaderboard
 const submitScore = async (req, res) => {
   const redisClient = req.app.get('redisClient');
@@ -302,21 +609,30 @@ const submitScore = async (req, res) => {
   const today = getEasternDateString();
   const redisKey = `${REDIS_KEY_PREFIX}${today}`;
   const statesKey = `${redisKey}:states`;
+  const ttlSeconds = 60 * 60 * 36;
   
   try {
     // Validate game state and calculate score
     const { totalScore, words } = await validateDailyGameState(redisClient, gameState, today);
     
     // Store the game state in a hash using playerId as key
-    const gameStateForStorage = { ...gameState, totalScore };
+    const gameStateForStorage = { ...gameState, totalScore, words };
     await redisClient.hSet(statesKey, playerId, JSON.stringify(gameStateForStorage));
     
     // Add score to sorted set
     await redisClient.zAdd(redisKey, { score: totalScore, value: playerId });
+    await updateWordAverageStatsForSubmission({
+      redisClient,
+      redisKey,
+      playerId,
+      totalScore,
+      words,
+      ttlSeconds
+    });
     
     // Set expiration for both keys (36 hours to ensure it lasts through the day)
-    await redisClient.expire(redisKey, 60 * 60 * 36);
-    await redisClient.expire(statesKey, 60 * 60 * 36);
+    await redisClient.expire(redisKey, ttlSeconds);
+    await redisClient.expire(statesKey, ttlSeconds);
     
     // Get player's rank (using zRank with reverse order)
     const totalMembers = await redisClient.zCard(redisKey);
@@ -541,6 +857,55 @@ const getTotalScores = async (req, res) => {
   }
 };
 
+const getWordBreakdown = async (req, res) => {
+  try {
+    const redisClient = req.app.get('redisClient');
+
+    if (!redisClient || !redisClient.isOpen) {
+      return res.status(503).json({ error: 'Leaderboard service unavailable' });
+    }
+
+    const { playerId } = req.query;
+    if (!playerId) {
+      return res.status(400).json({ error: 'Missing required query parameter: playerId' });
+    }
+
+    const today = getEasternDateString();
+    const redisKey = `${REDIS_KEY_PREFIX}${today}`;
+    const statesKey = `${redisKey}:states`;
+
+    const exists = await redisClient.exists(statesKey);
+    if (!exists) {
+      return res.status(404).json({ error: 'No game data found for today' });
+    }
+
+    const breakdown = await buildWordBreakdownForPlayer({
+      redisClient,
+      redisKey,
+      statesKey,
+      playerId,
+      mode: 'daily'
+    });
+
+    if (!breakdown) {
+      return res.status(404).json({ error: 'Player game state not found' });
+    }
+
+    return res.status(200).json({
+      date: today,
+      mode: 'daily',
+      ...breakdown
+    });
+  } catch (error) {
+    if (error.message.includes('Stored game state is invalid')) {
+      return res.status(500).json({ error: 'Failed to parse stored game state' });
+    }
+
+    console.error('Error getting word breakdown:', error);
+    return res.status(500).json({ error: 'Failed to get word breakdown', details: error.message });
+  }
+};
+
 // Submit blitz score to leaderboard
 const submitBlitzScore = async (req, res) => {
   const redisClient = req.app.get('redisClient');
@@ -559,21 +924,30 @@ const submitBlitzScore = async (req, res) => {
   const today = getEasternDateString();
   const redisKey = `${BLITZ_LEADERBOARD_PREFIX}${today}`;
   const statesKey = `${redisKey}:states`;
+  const ttlSeconds = 60 * 60 * 36;
   
   try {
     // Validate game state and calculate score
     const { totalScore, words } = await validateBlitzGameState(redisClient, gameState);
     
     // Store the game state in a hash using playerId as key
-    const gameStateForStorage = { ...gameState, totalScore };
+    const gameStateForStorage = { ...gameState, totalScore, words };
     await redisClient.hSet(statesKey, playerId, JSON.stringify(gameStateForStorage));
     
     // Add score to sorted set
     await redisClient.zAdd(redisKey, { score: totalScore, value: playerId });
+    await updateWordAverageStatsForSubmission({
+      redisClient,
+      redisKey,
+      playerId,
+      totalScore,
+      words,
+      ttlSeconds
+    });
     
     // Set expiration for both keys (36 hours to ensure it lasts through the day)
-    await redisClient.expire(redisKey, 60 * 60 * 36);
-    await redisClient.expire(statesKey, 60 * 60 * 36);
+    await redisClient.expire(redisKey, ttlSeconds);
+    await redisClient.expire(statesKey, ttlSeconds);
     
     // Get player's rank (using zRank with reverse order)
     const totalMembers = await redisClient.zCard(redisKey);
@@ -795,11 +1169,70 @@ const getBlitzTotalScores = async (req, res) => {
   }
 };
 
+const getBlitzWordBreakdown = async (req, res) => {
+  try {
+    const redisClient = req.app.get('redisClient');
+
+    if (!redisClient || !redisClient.isOpen) {
+      return res.status(503).json({ error: 'Leaderboard service unavailable' });
+    }
+
+    const { playerId, puzzleId } = req.query;
+    if (!playerId) {
+      return res.status(400).json({ error: 'Missing required query parameter: playerId' });
+    }
+
+    const today = getEasternDateString();
+    const effectivePuzzleId = puzzleId || today;
+    const redisKey = `${BLITZ_LEADERBOARD_PREFIX}${today}`;
+    const statesKey = `${redisKey}:states`;
+
+    const exists = await redisClient.exists(statesKey);
+    if (!exists) {
+      return res.status(404).json({ error: 'No blitz game data found for today' });
+    }
+
+    const breakdown = await buildWordBreakdownForPlayer({
+      redisClient,
+      redisKey,
+      statesKey,
+      playerId,
+      mode: 'blitz',
+      puzzleId: effectivePuzzleId
+    });
+
+    if (!breakdown) {
+      return res.status(404).json({ error: 'Player blitz game state not found' });
+    }
+
+    return res.status(200).json({
+      date: today,
+      mode: 'blitz',
+      puzzleId: effectivePuzzleId,
+      ...breakdown
+    });
+  } catch (error) {
+    if (error.message.includes('Requested puzzleId does not match player state')) {
+      return res.status(400).json({ error: error.message });
+    }
+    if (error.message.includes('Stored game state is invalid')) {
+      return res.status(500).json({ error: 'Failed to parse stored game state' });
+    }
+
+    console.error('Error getting blitz word breakdown:', error);
+    return res.status(500).json({ error: 'Failed to get blitz word breakdown', details: error.message });
+  }
+};
+
 module.exports = { 
   submitScore, 
   getLeaderboard, 
   getTotalScores,
+  getWordBreakdown,
   submitBlitzScore,
   getBlitzLeaderboard,
-  getBlitzTotalScores
+  getBlitzTotalScores,
+  getBlitzWordBreakdown,
+  initializeDictionary,
+  getWordInfo
 }; 

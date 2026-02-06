@@ -10,9 +10,12 @@ const {
   submitScore, 
   getLeaderboard, 
   getTotalScores,
+  getWordBreakdown,
   submitBlitzScore,
   getBlitzLeaderboard,
-  getBlitzTotalScores
+  getBlitzTotalScores,
+  getBlitzWordBreakdown,
+  initializeDictionary
 } = require('./controllers/leaderboard');
 
 // Create Redis client with configuration
@@ -54,14 +57,17 @@ app.get('/api/blitz-puzzle', getBlitzPuzzle);
 app.post('/api/leaderboard/submit', submitScore);
 app.get('/api/leaderboard', getLeaderboard);
 app.get('/api/leaderboard/total', getTotalScores);
+app.get('/api/leaderboard/word-breakdown', getWordBreakdown);
 app.post('/api/blitz/leaderboard/submit', submitBlitzScore);
 app.get('/api/blitz/leaderboard', getBlitzLeaderboard);
 app.get('/api/blitz/leaderboard/total', getBlitzTotalScores);
+app.get('/api/blitz/leaderboard/word-breakdown', getBlitzWordBreakdown);
 
 // Connect to Redis before starting the server
 async function startServer() {
   try {
     await redisClient.connect();
+    await initializeDictionary(redisClient);
     
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

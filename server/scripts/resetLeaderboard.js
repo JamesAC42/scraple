@@ -90,7 +90,12 @@ async function run() {
     const keys = [];
     for (const prefix of prefixes) {
       const baseKey = `${prefix}${date}`;
-      keys.push(baseKey, `${baseKey}:states`);
+      keys.push(
+        baseKey,
+        `${baseKey}:states`,
+        `${baseKey}:word-avg-score`,
+        `${baseKey}:word-avg-score:players`
+      );
     }
     totalDeleted = await deleteKeys(redisClient, keys);
   }
