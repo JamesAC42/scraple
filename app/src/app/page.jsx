@@ -1019,7 +1019,7 @@ export default function Home() {
   
   // Submit score to leaderboard
   const submitScoreToLeaderboard = async (results, mode = gameMode) => {
-    if (!playerId || !results) return;
+    if (!playerId || !results) return null;
     
     setIsSubmittingScore(true);
     
@@ -1054,15 +1054,17 @@ export default function Home() {
       
       const data = await response.json();
       setLeaderboardInfo(data);
+      return data;
     } catch (error) {
       console.error('Error submitting score:', error);
+      return null;
     } finally {
       setIsSubmittingScore(false);
     }
   };
 
   const fetchWordBreakdown = async (mode = gameMode) => {
-    if (!playerId) return;
+    if (!playerId || !isGameFinished || !gameResults) return;
 
     setIsFetchingWordBreakdown(true);
     setHasRequestedWordBreakdown(true);
@@ -1075,6 +1077,10 @@ export default function Home() {
 
       const response = await fetch(`${wordBreakdownEndpoint}?${params.toString()}`);
       if (!response.ok) {
+        if (response.status === 404) {
+          setWordBreakdown([]);
+          return;
+        }
         throw new Error(`Failed to fetch word breakdown: ${response.status}`);
       }
 
@@ -1115,8 +1121,10 @@ export default function Home() {
       setShowFinishPopup(false);
       
       // Submit score to leaderboard
-      await submitScoreToLeaderboard(results, gameMode);
-      await fetchWordBreakdown(gameMode);
+      const submitResult = await submitScoreToLeaderboard(results, gameMode);
+      if (submitResult) {
+        await fetchWordBreakdown(gameMode);
+      }
       if (typeof window !== 'undefined') {
         localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode);
       }
@@ -1415,10 +1423,11 @@ export default function Home() {
 
   useEffect(() => {
     if (!isGameFinished || !gameResults || !playerId) return;
+    if (!leaderboardInfo) return;
     if (isFetchingWordBreakdown) return;
     if (hasRequestedWordBreakdown || wordBreakdown.length > 0) return;
     fetchWordBreakdown(gameMode);
-  }, [isGameFinished, gameResults, playerId, gameMode, puzzleId, wordBreakdown.length, isFetchingWordBreakdown, hasRequestedWordBreakdown]);
+  }, [isGameFinished, gameResults, playerId, leaderboardInfo, gameMode, puzzleId, wordBreakdown.length, isFetchingWordBreakdown, hasRequestedWordBreakdown]);
   
   // Add a new useEffect to show the help popup on first visit
   useEffect(() => {
@@ -1469,6 +1478,20 @@ export default function Home() {
       }
     }
   };
+
+  const fallbackWordBreakdown = (Array.isArray(leaderboardInfo?.words) ? leaderboardInfo.words : (Array.isArray(gameResults?.words) ? gameResults.words : [])).map((wordResult) => ({
+    ...wordResult,
+    definition: null,
+    playedByOthersCount: null,
+    averageScoreAmongPlayers: null,
+    usedBonusTypes: [],
+    bonusPraise: null,
+    isHighScoringSpecial: wordResult.valid && wordResult.score > 50,
+    isUniqueTodaySpecial: false,
+    isSpecial: wordResult.valid && wordResult.score > 50
+  }));
+  const displayedWordBreakdown = wordBreakdown.length > 0 ? wordBreakdown : fallbackWordBreakdown;
+  const hasSubmittedWords = Array.isArray(gameResults?.words) && gameResults.words.length > 0;
   
   if (isLoading) {
     return (
@@ -1568,11 +1591,6 @@ export default function Home() {
                 {validationError}
               </div>
             )}
-            {isBlitzMode && !isGameFinished && (
-              <div className={styles.blitzTimer}>
-                Blitz Time Left: <strong>{formatBlitzTime(blitzTimeLeft)}</strong>
-              </div>
-            )}
             {isCalculating && (
               <div className={styles.calculatingMessage}>
                 Calculating your score...
@@ -1586,6 +1604,11 @@ export default function Home() {
           </div>
 
           <div className={styles.scoreTrackerContainer}>
+            {isBlitzMode && !isGameFinished && (
+              <div className={styles.blitzTimerStrip}>
+                ⚡ {formatBlitzTime(blitzTimeLeft)} ⚡
+              </div>
+            )}
             {/* Add ScoreTracker component above the board */}
             {!isGameFinished && (
               <ScoreTracker 
@@ -1709,24 +1732,14 @@ export default function Home() {
                 {isFetchingWordBreakdown && (
                   <div className={styles.wordsLoading}>Loading definitions and usage stats...</div>
                 )}
-                {!isFetchingWordBreakdown && wordBreakdown.length === 0 && (
+                {!isFetchingWordBreakdown && !hasSubmittedWords && (
+                  <div className={styles.wordsLoading}>You did not create any words.</div>
+                )}
+                {!isFetchingWordBreakdown && hasSubmittedWords && wordBreakdown.length === 0 && (
                   <div className={styles.wordsLoading}>Showing your scores while detailed stats load.</div>
                 )}
                 <ul className={styles.breakdownList}>
-                  {((wordBreakdown.length > 0
-                    ? wordBreakdown
-                    : (Array.isArray(leaderboardInfo?.words) ? leaderboardInfo.words : gameResults.words).map((wordResult) => ({
-                        ...wordResult,
-                        definition: null,
-                        playedByOthersCount: null,
-                        averageScoreAmongPlayers: null,
-                        usedBonusTypes: [],
-                        bonusPraise: null,
-                        isHighScoringSpecial: wordResult.valid && wordResult.score > 50,
-                        isUniqueTodaySpecial: false,
-                        isSpecial: wordResult.valid && wordResult.score > 50
-                      }))
-                  )).map((wordResult, index) => (
+                  {displayedWordBreakdown.map((wordResult, index) => (
                     <li
                       key={`${wordResult.word}-${index}`}
                       className={`${styles.breakdownItem} ${wordResult.valid ? styles.validWord : styles.invalidWord}`}
