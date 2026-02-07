@@ -6,6 +6,7 @@ import styles from "./PopupContainer.module.scss";
 import InfoPopup from "./popups/InfoPopup";
 import HelpPopup from "./popups/HelpPopup";
 import LeaderboardPopup from "./popups/LeaderboardPopup";
+import SharePopup from "./popups/SharePopup";
 
 import { IoMdClose } from "react-icons/io";
 
@@ -25,6 +26,8 @@ const PopupContainer = () => {
                 return "How To Play";
             case 'leaderboard':
                 return "Leaderboard";
+            case 'share':
+                return "Share your board";
             default:
                 return "";
         }
@@ -38,6 +41,8 @@ const PopupContainer = () => {
                 return <HelpPopup onClose={handleClosePopup}/>;
             case 'leaderboard':
                 return <LeaderboardPopup onClose={handleClosePopup}/>;
+            case 'share':
+                return <SharePopup onClose={handleClosePopup}/>;
             default:
                 return null;
         }

@@ -9,11 +9,10 @@
 
 .leaderboardHeader {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   margin-bottom: 1.5rem;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  gap: 0.6rem;
   
   h3 {
     margin: 0;
@@ -21,10 +20,18 @@
   }
 }
 
+.headerControlsRow {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .modeToggle {
   display: flex;
   gap: 0.5rem;
-  margin-left: auto;
+  justify-self: start;
 }
 
 .modeButton {
@@ -51,6 +58,7 @@
 .totalPlayers {
   font-size: 0.875rem;
   color: #666;
+  text-align: center;
 }
 
 .refreshButton {
@@ -64,6 +72,7 @@
   padding: 0.5rem;
   border-radius: 50%;
   transition: background-color 0.2s;
+  justify-self: end;
   
   &:hover {
     background-color: rgba(0, 0, 0, 0.05);
@@ -227,6 +236,28 @@
 
 // Media queries for responsive design
 @media (max-width: 48rem) {
+  .headerControlsRow {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .modeToggle {
+    gap: 0.35rem;
+  }
+
+  .modeButton {
+    padding: 0.3rem 0.55rem;
+    font-size: 0.8rem;
+  }
+
+  .refreshButton {
+    padding: 0.35rem;
+    font-size: 1.1rem;
+  }
+
+  .totalPlayers {
+    font-size: 0.8rem;
+  }
+
   .playerInfo {
     flex-direction: column;
     

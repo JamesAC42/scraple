@@ -18,12 +18,14 @@
     }
 }
 
-@keyframes slide-up {
+@keyframes popup-in {
     from {
-        transform:translate(-50%,-50%) translateY(20%);
+        opacity: 0;
+        transform: translate(-50%, -50%) translateY(28px);
     }
     to {
-        transform:translate(-50%,-50%) translateY(0);
+        opacity: 1;
+        transform: translate(-50%, -50%) translateY(0);
     }
 }
 
@@ -51,7 +53,7 @@
     transform:translate(-50%,-50%);
     width:40dvw;
     background-color: var(--background);
-    animation: slide-up 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    animation: popup-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) forwards;
     border-radius: 0.5rem;
 
     padding:1rem;

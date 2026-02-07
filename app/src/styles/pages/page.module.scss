@@ -417,6 +417,19 @@
             svg {
                 font-size: 1.25rem;
             }
+
+            .newBadge {
+                margin-left: 0.35rem;
+                font-size: 0.65rem;
+                font-weight: 800;
+                letter-spacing: 0.03em;
+                padding: 0.18rem 0.45rem;
+                border-radius: 999px;
+                background: #ffdb4d;
+                color: #433100;
+                border: 1px solid rgba(67, 49, 0, 0.2);
+                line-height: 1;
+            }
             
             &:hover {
                 background-color: #365899;
@@ -692,6 +705,11 @@
                 
                 svg {
                     font-size: 1.1rem;
+                }
+
+                .newBadge {
+                    font-size: 0.6rem;
+                    padding: 0.15rem 0.38rem;
                 }
             }
             

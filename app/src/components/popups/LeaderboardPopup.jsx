@@ -112,23 +112,28 @@ const LeaderboardPopup = ({ onClose }) => {
       <div className={styles.leaderboardContainer}>
         <div className={styles.leaderboardHeader}>
           <h3>{mode === 'blitz' ? 'Blitz Leaderboard' : "Today's Leaderboard"}</h3>
-          <div className={styles.modeToggle}>
-            <button
-              className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''}`}
-              onClick={() => handleModeChange('daily')}
-            >
-              Daily
-            </button>
-            <button
-              className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''}`}
-              onClick={() => handleModeChange('blitz')}
-            >
-              Blitz
+          <div className={styles.headerControlsRow}>
+            <div className={styles.modeToggle}>
+              <button
+                className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''}`}
+                onClick={() => handleModeChange('daily')}
+              >
+                Daily
+              </button>
+              <button
+                className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''}`}
+                onClick={() => handleModeChange('blitz')}
+              >
+                Blitz
+              </button>
+            </div>
+            <div className={styles.totalPlayers}>
+              {(totalScores ?? 0)} {(totalScores ?? 0) === 1 ? 'player' : 'players'} today
+            </div>
+            <button className={styles.refreshButton} onClick={handleRefresh}>
+              <IoMdRefresh />
             </button>
           </div>
-          <button className={styles.refreshButton} onClick={handleRefresh}>
-            <IoMdRefresh />
-          </button>
         </div>
         
         {isLoading ? (
@@ -244,26 +249,28 @@ const LeaderboardPopup = ({ onClose }) => {
     <div className={styles.leaderboardContainer}>
       <div className={styles.leaderboardHeader}>
           <h3>{mode === 'blitz' ? 'Blitz Leaderboard' : "Today's Leaderboard"}</h3>
-          <div className={styles.modeToggle}>
-            <button
-              className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''}`}
-              onClick={() => handleModeChange('daily')}
-            >
-              Daily
-            </button>
-            <button
-              className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''}`}
-              onClick={() => handleModeChange('blitz')}
-            >
-              Blitz
+          <div className={styles.headerControlsRow}>
+            <div className={styles.modeToggle}>
+              <button
+                className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''}`}
+                onClick={() => handleModeChange('daily')}
+              >
+                Daily
+              </button>
+              <button
+                className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''}`}
+                onClick={() => handleModeChange('blitz')}
+              >
+                Blitz
+              </button>
+            </div>
+            <div className={styles.totalPlayers}>
+              {leaderboard.totalPlayers} {leaderboard.totalPlayers === 1 ? 'player' : 'players'} today
+            </div>
+            <button className={styles.refreshButton} onClick={handleRefresh}>
+              <IoMdRefresh />
             </button>
           </div>
-        <div className={styles.totalPlayers}>
-          {leaderboard.totalPlayers} {leaderboard.totalPlayers === 1 ? 'player' : 'players'} today
-        </div>
-        <button className={styles.refreshButton} onClick={handleRefresh}>
-          <IoMdRefresh />
-        </button>
       </div>
       
       {hasPlayerRank ? (

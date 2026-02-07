@@ -24,6 +24,10 @@ const InfoPopup = ({ onClose }) => {
             localStorage.removeItem('scraple_game_state');
             localStorage.removeItem('scraple_game_date');
             localStorage.removeItem('scraple_game_results');
+            localStorage.removeItem('scraple_daily_share_image_date');
+            localStorage.removeItem('scraple_daily_share_image_data');
+            localStorage.removeItem('scraple_blitz_share_image_date');
+            localStorage.removeItem('scraple_blitz_share_image_data');
             
             // Keep the player ID as it's not related to the game state
             // localStorage.removeItem('scraple_player_id');

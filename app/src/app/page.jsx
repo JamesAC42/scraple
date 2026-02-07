@@ -50,6 +50,8 @@ const BLITZ_GAME_RESULTS_KEY = 'scraple_blitz_game_results';
 const BLITZ_PUZZLE_ID_KEY = 'scraple_blitz_puzzle_id';
 const BLITZ_START_TIME_KEY = 'scraple_blitz_start_time';
 const LEADERBOARD_MODE_KEY = 'scraple_leaderboard_mode';
+const SHARE_MODE_KEY = 'scraple_share_mode';
+const SHARE_NEW_BADGE_EXPIRES_ON = '2026-02-14';
 
 const BLITZ_DURATION_SECONDS = 60;
 
@@ -161,11 +163,10 @@ export default function Home() {
   const [hasRequestedWordBreakdown, setHasRequestedWordBreakdown] = useState(false);
 
   const [showFinishPopup, setShowFinishPopup] = useState(false);
-  const [shareMessage, setShareMessage] = useState('');
   const [validationError, setValidationError] = useState('');
-  const textAreaRef = useRef(null);
   const blitzTimeoutRef = useRef(null);
   const blitzAutoSubmitRef = useRef(false);
+  const finalizeGameRef = useRef(null);
 
   const { setActivePopup } = usePopup();
   
@@ -176,6 +177,7 @@ export default function Home() {
   const [currentScore, setCurrentScore] = useState(0);
   const [currentWords, setCurrentWords] = useState([]);
   const isBlitzMode = gameMode === 'blitz';
+  const showShareNewBadge = getFormattedDate() <= SHARE_NEW_BADGE_EXPIRES_ON;
 
   const checkDailyCompleted = () => {
     if (typeof window === 'undefined') return false;
@@ -1166,101 +1168,21 @@ export default function Home() {
     }
   };
 
+  useEffect(() => {
+    finalizeGameRef.current = finalizeGame;
+  }, [finalizeGame]);
+
   const handleConfirm = async () => {
     await finalizeGame();
   };
 
   // Handle sharing game results
-  const handleShare = async () => {
+  const handleShare = () => {
     if (!gameResults) return;
-    
-    // Create share text
-    const date = getDisplayDate();
-    const modeLabel = isBlitzMode ? 'Blitz' : '';
-    
-    const { emoji, description } = getScoreRating(gameResults.totalScore);
-    
-    // Format text differently for web share vs clipboard
-    const isWebShare = navigator.share && window.location.hostname !== 'localhost';
-    
-    // For clipboard, we'll use more spacing to make it readable in plain text
-    let shareText = `Scraple ${modeLabel ? `${modeLabel} ` : ''}${date}: ${gameResults.totalScore} points ${emoji}\n`;
-    shareText += `${description}!\n\n`;
-    
-    // Add valid words
-    //const validWords = gameResults.words.filter(word => word.valid);
-    //if (validWords.length > 0) {
-    //  shareText += `Words: ${validWords.map(w => w.word.toUpperCase()).join(', ')}\n\n`;
-    //}
-    
-    // Add URL with proper spacing
-    shareText += `Play today's puzzle at: ${window.location.origin}`;
-    
-    // Try to use Web Share API if available and not in development
-    if (isWebShare) {
-      try {
-        await navigator.share({
-          title: 'My Scraple Score',
-          text: shareText,
-          url: window.location.href
-        });
-      } catch (error) {
-        console.error('Error sharing:', error);
-        // Fall back to clipboard if sharing fails
-        copyToClipboard(shareText);
-      }
-    } else {
-      // Fallback to clipboard
-      copyToClipboard(shareText);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(SHARE_MODE_KEY, isBlitzMode ? 'blitz' : 'daily');
     }
-  };
-  
-  // Helper function to copy text to clipboard
-  const copyToClipboard = (text) => {
-    // Set the textarea value to our text
-    if (textAreaRef.current) {
-      textAreaRef.current.value = text;
-      textAreaRef.current.select();
-      
-      try {
-        // Try the modern clipboard API first
-        navigator.clipboard.writeText(text).then(
-          () => {
-            setShareMessage('Results copied to clipboard!');
-            setTimeout(() => setShareMessage(''), 3000);
-          },
-          (err) => {
-            // If clipboard API fails, try document.execCommand
-            console.error('Clipboard API failed:', err);
-            fallbackCopyToClipboard();
-          }
-        );
-      } catch (err) {
-        // If clipboard API is not available, try document.execCommand
-        console.error('Clipboard API not available:', err);
-        fallbackCopyToClipboard();
-      }
-    }
-  };
-  
-  // Fallback copy method using execCommand
-  const fallbackCopyToClipboard = () => {
-    try {
-      const successful = document.execCommand('copy');
-      if (successful) {
-        setShareMessage('Results copied to clipboard!');
-      } else {
-        setShareMessage('Failed to copy results. Please try again.');
-      }
-    } catch (err) {
-      console.error('execCommand error:', err);
-      setShareMessage('Failed to copy results. Please try again.');
-    }
-    
-    // Clear message after 3 seconds
-    setTimeout(() => {
-      setShareMessage('');
-    }, 3000);
+    setActivePopup('share');
   };
   
   // Calculate current score whenever placedTiles changes
@@ -1322,7 +1244,9 @@ export default function Home() {
 
       if (remaining <= 0 && !blitzAutoSubmitRef.current) {
         blitzAutoSubmitRef.current = true;
-        finalizeGame({ skipValidation: true });
+        if (finalizeGameRef.current) {
+          finalizeGameRef.current({ skipValidation: true });
+        }
       }
     };
 
@@ -1716,15 +1640,9 @@ export default function Home() {
                   onClick={handleShare}
                 >
                   <IoShareSocialOutline /> 
-                  {window.location.hostname === 'localhost' 
-                    ? 'Copy Results to Clipboard' 
-                    : 'Share Results'}
+                  Share my board
+                  {showShareNewBadge && <span className={styles.newBadge}>NEW!</span>}
                 </button>
-                {shareMessage && (
-                  <div className={styles.shareMessage}>
-                    {shareMessage}
-                  </div>
-                )}
               </div>
               
               <div className={styles.wordsContainer}>
@@ -1845,18 +1763,6 @@ export default function Home() {
           {/* Reset all data button has been moved to the info popup */}
         </div>
       </div>
-      {/* Hidden textarea for clipboard operations */}
-      <textarea
-        ref={textAreaRef}
-        style={{ 
-          position: 'absolute', 
-          left: '-9999px', 
-          top: 0,
-          opacity: 0,
-          height: 0
-        }}
-        aria-hidden="true"
-      />
     </DndContext>
   );
 }
