@@ -1135,6 +1135,10 @@ export default function Home() {
       } else if (gameMode === 'blitz') {
         setBlitzCompleted(true);
       }
+
+      const resultsForStorage = submitResult && typeof submitResult.percentile === 'number'
+        ? { ...results, percentile: submitResult.percentile }
+        : results;
       
       const { storageKey, dateKey, resultsKey, puzzleIdKey } = getModeStorage(gameMode);
       // Get the current date from localStorage to ensure consistency
@@ -1155,7 +1159,7 @@ export default function Home() {
       if (typeof window !== 'undefined') {
         localStorage.setItem(storageKey, JSON.stringify(gameState));
         localStorage.setItem(dateKey, currentDate);
-        localStorage.setItem(resultsKey, JSON.stringify(results));
+        localStorage.setItem(resultsKey, JSON.stringify(resultsForStorage));
         if (puzzleIdKey && puzzleId) {
           localStorage.setItem(puzzleIdKey, puzzleId);
         }
