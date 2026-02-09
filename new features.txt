@@ -1,0 +1,36 @@
+new features to implement:
+
+    - better player analysis
+        - streak
+        - average score
+        - highest score
+        - graphs/chart of score over time
+        - see history of past games played and their board
+        - give definition of words and track how often they've played that word before
+        - update the thresholds for what is "good", "excellent", etc
+        - award players for playing words no one else has played, or show how many other players used that word
+    - better social features
+        - have sharing create an image of the board+score etc that people can download
+            - make sure to have the site watermark on it
+        - player rooms
+            - create a room - creates a unique ID at URL that players can share
+                - private or public
+                - games played in the room have a unique leaderboard comparing just people in the room
+                - can also see how you rank globally
+        - optional usernames so people can be identified on the leaderboard better
+            - maybe use a player hash like 4chan tripcodes to avoid impersonation without requiring accounts
+            - color the names to make them seem special
+        - achievements for ranking
+        - player v. player
+            - timed and non-timed versions where 2 people can go head to head on a random new board
+    - other
+        - game history, players can go back and play old games and see how they would rank on that day's leaderboard
+        - use the bot to find the highest possible single scoring word, give an achievement to players that find that word
+        - new blitz mode where its a separate unique daily board but you're limited to 60 seconds, separate leaderboard
+    - scraple bot
+        - plays the game by itself and publishes its score, players can see how they compare
+        - player v bot
+            - new random board, use bigger actual scrabble board and just make it be scrabble basically
+                - also allow player v player for actual scrabble game
+                - call it "classic mode"
+        
