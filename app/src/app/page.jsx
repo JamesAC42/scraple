@@ -30,6 +30,7 @@ import {
   getStoredNickname,
   setStoredNickname
 } from "@/lib/nickname";
+import { updateStreakOnPuzzleComplete } from "@/lib/streaks";
 
 // Letter points mapping
 const letterPoints = {
@@ -1079,7 +1080,7 @@ export default function Home() {
   }, []);
   
   // Submit score to leaderboard
-  const submitScoreToLeaderboard = async (results, mode = gameMode) => {
+  const submitScoreToLeaderboard = async (results, mode = gameMode, streakCount = null) => {
     if (!playerId || !results) return null;
     
     setIsSubmittingScore(true);
@@ -1105,7 +1106,8 @@ export default function Home() {
         body: JSON.stringify({
           score: results.totalScore,
           gameState,
-          playerId
+          playerId,
+          streak: streakCount
         })
       });
       
@@ -1184,8 +1186,17 @@ export default function Home() {
       setHasRequestedWordBreakdown(false);
       setShowFinishPopup(false);
       
+      const { storageKey, dateKey, resultsKey, puzzleIdKey } = getModeStorage(gameMode);
+      // Get the current date from localStorage to ensure consistency
+      const currentDate = localStorage.getItem(dateKey) || getFormattedDate();
+      const streakCount = updateStreakOnPuzzleComplete({
+        mode: gameMode,
+        puzzleDate: currentDate
+      });
+      window.dispatchEvent(new CustomEvent('scraple:streak-updated'));
+
       // Submit score to leaderboard
-      const submitResult = await submitScoreToLeaderboard(results, gameMode);
+      const submitResult = await submitScoreToLeaderboard(results, gameMode, streakCount);
       await fetchWordBreakdown(gameMode, { finished: true, results });
       if (typeof window !== 'undefined') {
         localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode);
@@ -1199,10 +1210,6 @@ export default function Home() {
       const resultsForStorage = submitResult && typeof submitResult.percentile === 'number'
         ? { ...results, percentile: submitResult.percentile }
         : results;
-      
-      const { storageKey, dateKey, resultsKey, puzzleIdKey } = getModeStorage(gameMode);
-      // Get the current date from localStorage to ensure consistency
-      const currentDate = localStorage.getItem(dateKey) || getFormattedDate();
       
       // Force an immediate save of the game state with the updated isGameFinished flag
       const gameState = {

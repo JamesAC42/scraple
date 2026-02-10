@@ -311,15 +311,43 @@ const LeaderboardPopup = ({ onClose }) => {
               )}
             </div>
             <div className={styles.identityColumn}>
-              {entry.nickname && (
-                <span
-                  className={styles.nicknameBadge}
-                  style={getNicknameBadgeStyle(entry.playerHash || getPlayerHash(entry.playerId))}
-                >
-                  {entry.nickname}
-                </span>
+              {entry.nickname ? (
+                <>
+                  <div className={styles.identityLine}>
+                    <span
+                      className={styles.nicknameBadge}
+                      style={getNicknameBadgeStyle(entry.playerHash || getPlayerHash(entry.playerId))}
+                    >
+                      {entry.nickname}
+                    </span>
+                  </div>
+                  {Number(entry.streak) > 1 && (
+                    <div className={styles.identityLine}>
+                      <span className={styles.streakBadge}>
+                        <span className={styles.streakEmoji}>🔥</span>
+                        <span className={styles.streakValue}>{entry.streak}</span>
+                      </span>
+                    </div>
+                  )}
+                  <div className={styles.identityLine}>
+                    <span className={styles.hashTag}>#{entry.playerHash || getPlayerHash(entry.playerId)}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className={styles.identityLine}>
+                    <span className={styles.hashTag}>#{entry.playerHash || getPlayerHash(entry.playerId)}</span>
+                  </div>
+                  {Number(entry.streak) > 1 && (
+                    <div className={styles.identityLine}>
+                      <span className={styles.streakBadge}>
+                        <span className={styles.streakEmoji}>🔥</span>
+                        <span className={styles.streakValue}>{entry.streak}</span>
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
-              <span className={styles.hashTag}>#{entry.playerHash || getPlayerHash(entry.playerId)}</span>
             </div>
             <div className={styles.scoreColumn}>{entry.score}</div>
             <div className={styles.boardColumn}>

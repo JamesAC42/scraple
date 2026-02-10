@@ -15,6 +15,20 @@
   font-size: 0.95rem;
 }
 
+.streakSection {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.streakItem {
+  font-size: 0.9rem;
+  border: 1px solid #f1c393;
+  background-color: rgba(255, 194, 128, 0.16);
+  border-radius: 999px;
+  padding: 0.22rem 0.65rem;
+}
+
 .fieldLabel {
   font-weight: 700;
 }

@@ -14,6 +14,8 @@ const BLITZ_LEADERBOARD_PREFIX = 'scraple:blitz:leaderboard:';
 const BLITZ_DAILY_PREFIX = 'scraple:blitz:daily:';
 const WORD_AVG_SCORE_SUFFIX = ':word-avg-score';
 const WORD_AVG_PLAYERS_SUFFIX = ':word-avg-score:players';
+const DAILY_STREAKS_KEY = 'scraple:streaks:daily';
+const BLITZ_STREAKS_KEY = 'scraple:streaks:blitz';
 const DICTIONARY_INFO_KEY = 'scraple:dictionary:info';
 const DICTIONARY_VERSION_KEY = 'scraple:dictionary:version';
 const DICTIONARY_VERSION = 'collins-2019-defs-v2';
@@ -347,6 +349,10 @@ const getWordAverageKeys = (redisKey) => ({
   playersKey: `${redisKey}${WORD_AVG_PLAYERS_SUFFIX}`
 });
 
+const getStreakRedisKey = (mode) => {
+  return mode === 'blitz' ? BLITZ_STREAKS_KEY : DAILY_STREAKS_KEY;
+};
+
 const getNicknameMapForPlayerIds = async (redisClient, playerIds = []) => {
   const uniquePlayerIds = [...new Set(playerIds.filter(Boolean))];
   if (uniquePlayerIds.length === 0) return new Map();
@@ -362,11 +368,29 @@ const getNicknameMapForPlayerIds = async (redisClient, playerIds = []) => {
   return nicknameMap;
 };
 
-const buildIdentityForPlayer = (playerId, nicknameMap) => {
+const getStreakMapForPlayerIds = async (redisClient, playerIds = [], mode = 'daily') => {
+  const uniquePlayerIds = [...new Set(playerIds.filter(Boolean))];
+  if (uniquePlayerIds.length === 0) return new Map();
+
+  const streakKey = getStreakRedisKey(mode);
+  const rawStreaks = await redisClient.sendCommand(['HMGET', streakKey, ...uniquePlayerIds]);
+  const streakMap = new Map();
+
+  uniquePlayerIds.forEach((id, index) => {
+    const parsed = Number(rawStreaks[index]);
+    streakMap.set(id, Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0);
+  });
+
+  return streakMap;
+};
+
+const buildIdentityForPlayer = (playerId, nicknameMap, streakMap) => {
   const nickname = nicknameMap.get(playerId) || null;
+  const streak = streakMap.get(playerId) || 0;
   return {
     nickname,
-    playerHash: getPlayerHash(playerId)
+    playerHash: getPlayerHash(playerId),
+    streak
   };
 };
 
@@ -628,7 +652,7 @@ const submitScore = async (req, res) => {
     return res.status(503).json({ error: 'Leaderboard service unavailable' });
   }
   
-  const { gameState, playerId } = req.body;
+  const { gameState, playerId, streak } = req.body;
   
   if (!gameState || !playerId) {
     return res.status(400).json({ error: 'Missing required fields' });
@@ -649,6 +673,9 @@ const submitScore = async (req, res) => {
     
     // Add score to sorted set
     await redisClient.zAdd(redisKey, { score: totalScore, value: playerId });
+    if (Number.isFinite(Number(streak)) && Number(streak) > 0) {
+      await redisClient.hSet(getStreakRedisKey('daily'), playerId, Math.floor(Number(streak)));
+    }
     await updateWordAverageStatsForSubmission({
       redisClient,
       redisKey,
@@ -680,7 +707,9 @@ const submitScore = async (req, res) => {
       value: member.value,
       score: Number(member.score)
     }));
-    const nicknameMap = await getNicknameMapForPlayerIds(redisClient, formattedTopScores.map((item) => item.value));
+    const topPlayerIds = formattedTopScores.map((item) => item.value);
+    const nicknameMap = await getNicknameMapForPlayerIds(redisClient, topPlayerIds);
+    const streakMap = await getStreakMapForPlayerIds(redisClient, topPlayerIds, 'daily');
     
     // Check if player is in top 10
     const isInTopTen = rank !== null && rank < 10;
@@ -693,7 +722,7 @@ const submitScore = async (req, res) => {
       topScores: formattedTopScores.map(item => ({
         playerId: item.value,
         score: item.score,
-        ...buildIdentityForPlayer(item.value, nicknameMap),
+        ...buildIdentityForPlayer(item.value, nicknameMap, streakMap),
         isCurrentPlayer: item.value === playerId
       })),
       words // Include word results in response
@@ -785,7 +814,9 @@ const getLeaderboard = async (req, res) => {
       // Get game states for the top 100 players
       const topPlayerIds = allScores.slice(0, 300).map(item => item.value);
       const gameStates = {};
-      const nicknameMap = await getNicknameMapForPlayerIds(redisClient, allScores.map((item) => item.value));
+      const allPlayerIds = allScores.map((item) => item.value);
+      const nicknameMap = await getNicknameMapForPlayerIds(redisClient, allPlayerIds);
+      const streakMap = await getStreakMapForPlayerIds(redisClient, allPlayerIds, 'daily');
       
       if (topPlayerIds.length > 0) {
         // Check if states key exists
@@ -826,7 +857,7 @@ const getLeaderboard = async (req, res) => {
           rank: index + 1,
           playerId: item.value,
           score: item.score,
-          ...buildIdentityForPlayer(item.value, nicknameMap),
+          ...buildIdentityForPlayer(item.value, nicknameMap, streakMap),
           isCurrentPlayer: item.value === playerId,
           gameState: gameStates[item.value] || null
         })),
@@ -947,7 +978,7 @@ const submitBlitzScore = async (req, res) => {
     return res.status(503).json({ error: 'Leaderboard service unavailable' });
   }
   
-  const { gameState, playerId } = req.body;
+  const { gameState, playerId, streak } = req.body;
   
   if (!gameState || !playerId) {
     return res.status(400).json({ error: 'Missing required fields' });
@@ -968,6 +999,9 @@ const submitBlitzScore = async (req, res) => {
     
     // Add score to sorted set
     await redisClient.zAdd(redisKey, { score: totalScore, value: playerId });
+    if (Number.isFinite(Number(streak)) && Number(streak) > 0) {
+      await redisClient.hSet(getStreakRedisKey('blitz'), playerId, Math.floor(Number(streak)));
+    }
     await updateWordAverageStatsForSubmission({
       redisClient,
       redisKey,
@@ -999,7 +1033,9 @@ const submitBlitzScore = async (req, res) => {
       value: member.value,
       score: Number(member.score)
     }));
-    const nicknameMap = await getNicknameMapForPlayerIds(redisClient, formattedTopScores.map((item) => item.value));
+    const topPlayerIds = formattedTopScores.map((item) => item.value);
+    const nicknameMap = await getNicknameMapForPlayerIds(redisClient, topPlayerIds);
+    const streakMap = await getStreakMapForPlayerIds(redisClient, topPlayerIds, 'blitz');
     
     // Check if player is in top 10
     const isInTopTen = rank !== null && rank < 10;
@@ -1012,7 +1048,7 @@ const submitBlitzScore = async (req, res) => {
       topScores: formattedTopScores.map(item => ({
         playerId: item.value,
         score: item.score,
-        ...buildIdentityForPlayer(item.value, nicknameMap),
+        ...buildIdentityForPlayer(item.value, nicknameMap, streakMap),
         isCurrentPlayer: item.value === playerId
       })),
       words // Include word results in response
@@ -1101,7 +1137,9 @@ const getBlitzLeaderboard = async (req, res) => {
       // Get game states for the top 300 players
       const topPlayerIds = allScores.slice(0, 300).map(item => item.value);
       const gameStates = {};
-      const nicknameMap = await getNicknameMapForPlayerIds(redisClient, allScores.map((item) => item.value));
+      const allPlayerIds = allScores.map((item) => item.value);
+      const nicknameMap = await getNicknameMapForPlayerIds(redisClient, allPlayerIds);
+      const streakMap = await getStreakMapForPlayerIds(redisClient, allPlayerIds, 'blitz');
       
       if (topPlayerIds.length > 0) {
         // Check if states key exists
@@ -1142,7 +1180,7 @@ const getBlitzLeaderboard = async (req, res) => {
           rank: index + 1,
           playerId: item.value,
           score: item.score,
-          ...buildIdentityForPlayer(item.value, nicknameMap),
+          ...buildIdentityForPlayer(item.value, nicknameMap, streakMap),
           isCurrentPlayer: item.value === playerId,
           gameState: gameStates[item.value] || null
         })),

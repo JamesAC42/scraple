@@ -147,24 +147,73 @@
   flex-direction: column;
   justify-content: center;
   align-items: flex-start;
-  gap: 0.5rem;
+  gap: 0.2rem;
   line-height: 1;
 }
 
+.identityLine {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 1rem;
+  max-width: 100%;
+}
+
 .nicknameBadge {
+  display: inline-block;
   border: 1px solid;
   padding: 0.18rem 0.55rem;
   font-size: 0.8rem;
   font-weight: 700;
   color: #2c3f68;
   line-height: 1.05;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.noNicknameLabel {
+  font-size: 0.78rem;
+  color: #6d7280;
+  font-style: italic;
 }
 
 .hashTag {
+  display: inline-block;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   color: #6b7280;
   font-size: 0.8rem;
   line-height: 1;
+  white-space: nowrap;
+}
+
+.streakBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  border: 1px solid #d14b2c;
+  background-color: rgba(255, 136, 61, 0.2);
+  border-radius: 999px;
+  padding: 0.14rem 0.45rem;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.streakEmoji {
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.streakValue {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #a52d12;
+  transform: translateY(-0.01rem);
 }
 
 .medal {
@@ -303,9 +352,9 @@
 
   .identityColumn {
     width: 34%;
-    gap: 0.5rem;
+    gap: 0.2rem;
   }
-  
+
   .scoreColumn {
     width: 16%;
   }
@@ -317,6 +366,10 @@
   .nicknameBadge {
     font-size: 0.72rem;
     padding: 0.12rem 0.45rem;
+  }
+
+  .streakBadge {
+    padding: 0.12rem 0.32rem;
   }
 
   .hashTag {

@@ -11,6 +11,7 @@ import {
   setStoredNickname,
   validateNickname
 } from '@/lib/nickname';
+import { getStoredStreakState } from '@/lib/streaks';
 
 const ProfilePopup = () => {
   const [playerId, setPlayerId] = useState('');
@@ -18,12 +19,30 @@ const ProfilePopup = () => {
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
+  const [dailyStreak, setDailyStreak] = useState(0);
+  const [blitzStreak, setBlitzStreak] = useState(0);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const storedPlayerId = localStorage.getItem(PLAYER_ID_KEY) || '';
     setPlayerId(storedPlayerId);
     setNickname(getStoredNickname());
+    setDailyStreak(getStoredStreakState('daily').count);
+    setBlitzStreak(getStoredStreakState('blitz').count);
+  }, []);
+
+  useEffect(() => {
+    const syncStreaks = () => {
+      setDailyStreak(getStoredStreakState('daily').count);
+      setBlitzStreak(getStoredStreakState('blitz').count);
+    };
+
+    window.addEventListener('scraple:streak-updated', syncStreaks);
+    window.addEventListener('storage', syncStreaks);
+    return () => {
+      window.removeEventListener('scraple:streak-updated', syncStreaks);
+      window.removeEventListener('storage', syncStreaks);
+    };
   }, []);
 
   const handleSave = async () => {
@@ -91,6 +110,14 @@ const ProfilePopup = () => {
       <p className={styles.profileHint}>
         Your leaderboard identity is your nickname plus ID hash.
       </p>
+      <div className={styles.streakSection}>
+        <div className={styles.streakItem}>
+          Daily streak: <strong>🔥 {dailyStreak}</strong>
+        </div>
+        <div className={styles.streakItem}>
+          Blitz streak: <strong>🔥 {blitzStreak}</strong>
+        </div>
+      </div>
       <div className={styles.hashRow}>ID hash: <strong>#{playerHash}</strong></div>
       <label className={styles.fieldLabel} htmlFor="profile-nickname-input">
         Nickname
