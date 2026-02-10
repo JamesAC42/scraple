@@ -5,45 +5,101 @@ import styles from './LeaderboardPopup.module.scss';
 import { IoMdRefresh } from 'react-icons/io';
 import { getNicknameBadgeStyle, getPlayerHash } from '@/lib/nickname';
 
+const normalizeDateString = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const month = slashMatch[1].padStart(2, '0');
+    const day = slashMatch[2].padStart(2, '0');
+    const year = slashMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  return trimmed;
+};
+
+const getTodayDate = () => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York'
+  }).format(new Date());
+};
+
 const LeaderboardPopup = ({ onClose }) => {
   const [leaderboard, setLeaderboard] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [playerId, setPlayerId] = useState(null);
   const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
-  const [totalScores, setTotalScores] = useState(null);
   const [mode, setMode] = useState('daily');
+  const [modeCompletion, setModeCompletion] = useState({ daily: false, blitz: false });
 
   const LEADERBOARD_MODE_KEY = 'scraple_leaderboard_mode';
   const DAILY_RESULTS_KEY = 'scraple_game_results';
   const BLITZ_RESULTS_KEY = 'scraple_blitz_game_results';
+  const DAILY_DATE_KEY = 'scraple_game_date';
+  const BLITZ_DATE_KEY = 'scraple_blitz_game_date';
+
+  const hasCompletedModeForToday = (modeValue) => {
+    const isBlitz = modeValue === 'blitz';
+    const resultsKey = isBlitz ? BLITZ_RESULTS_KEY : DAILY_RESULTS_KEY;
+    const dateKey = isBlitz ? BLITZ_DATE_KEY : DAILY_DATE_KEY;
+    const savedResults = localStorage.getItem(resultsKey);
+    const savedDate = localStorage.getItem(dateKey);
+    const today = normalizeDateString(getTodayDate());
+    return !!savedResults && normalizeDateString(savedDate) === today;
+  };
+
+  const modeIsUnlocked = (modeValue, completion = modeCompletion) => {
+    return modeValue === 'blitz' ? completion.blitz : completion.daily;
+  };
+
+  const pickInitialMode = (preferredMode, completion) => {
+    if (modeIsUnlocked(preferredMode, completion)) return preferredMode;
+    if (completion.daily) return 'daily';
+    if (completion.blitz) return 'blitz';
+    return 'daily';
+  };
   
   useEffect(() => {
     const storedMode = localStorage.getItem(LEADERBOARD_MODE_KEY);
-    setMode(storedMode === 'blitz' ? 'blitz' : 'daily');
+    const preferredMode = storedMode === 'blitz' ? 'blitz' : 'daily';
+    const completion = {
+      daily: hasCompletedModeForToday('daily'),
+      blitz: hasCompletedModeForToday('blitz')
+    };
+
+    setModeCompletion(completion);
+    setMode(pickInitialMode(preferredMode, completion));
   }, []);
 
   useEffect(() => {
-    // Check if the user has submitted their score
-    const resultsKey = mode === 'blitz' ? BLITZ_RESULTS_KEY : DAILY_RESULTS_KEY;
-    const gameResults = localStorage.getItem(resultsKey);
-    setHasSubmittedScore(!!gameResults);
-    
-    // Get player ID from localStorage
     const storedPlayerId = localStorage.getItem('scraple_player_id');
     setPlayerId(storedPlayerId);
-    
-    if (!!gameResults) {
-      fetchLeaderboard(storedPlayerId, mode);
-    } else {
-      // If user hasn't submitted a score, fetch just the total number of scores
-      fetchTotalScores(mode);
+
+    const completion = {
+      daily: hasCompletedModeForToday('daily'),
+      blitz: hasCompletedModeForToday('blitz')
+    };
+    setModeCompletion(completion);
+
+    const modeIsCompleted = modeIsUnlocked(mode, completion);
+    setHasSubmittedScore(modeIsCompleted);
+
+    if (!modeIsCompleted) {
+      setLeaderboard(null);
+      setError(null);
+      setIsLoading(false);
+      return;
     }
+
+    fetchLeaderboard(storedPlayerId, mode);
   }, [mode]);
 
   const getModeEndpoints = (modeValue) => ({
-    leaderboard: modeValue === 'blitz' ? '/api/blitz/leaderboard' : '/api/leaderboard',
-    total: modeValue === 'blitz' ? '/api/blitz/leaderboard/total' : '/api/leaderboard/total'
+    leaderboard: modeValue === 'blitz' ? '/api/blitz/leaderboard' : '/api/leaderboard'
   });
   
   const fetchLeaderboard = async (id, modeValue = mode) => {
@@ -68,41 +124,16 @@ const LeaderboardPopup = ({ onClose }) => {
     }
   };
   
-  const fetchTotalScores = async (modeValue = mode) => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const { total } = getModeEndpoints(modeValue);
-      const response = await fetch(total);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch total scores: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setTotalScores(data.totalScores);
-    } catch (error) {
-      console.error('Error fetching total scores:', error);
-      setError('Failed to load leaderboard data. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
   const handleRefresh = () => {
-    if (hasSubmittedScore) {
-      fetchLeaderboard(playerId, mode);
-    } else {
-      fetchTotalScores(mode);
-    }
+    if (!modeIsUnlocked(mode)) return;
+    fetchLeaderboard(playerId, mode);
   };
 
   const handleModeChange = (nextMode) => {
     if (nextMode === mode) return;
+    if (!modeIsUnlocked(nextMode)) return;
     localStorage.setItem(LEADERBOARD_MODE_KEY, nextMode);
     setLeaderboard(null);
-    setTotalScores(null);
     setError(null);
     setMode(nextMode);
   };
@@ -116,36 +147,30 @@ const LeaderboardPopup = ({ onClose }) => {
           <div className={styles.headerControlsRow}>
             <div className={styles.modeToggle}>
               <button
-                className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''}`}
+                className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''} ${!modeCompletion.daily ? styles.lockedMode : ''}`}
                 onClick={() => handleModeChange('daily')}
+                disabled={!modeCompletion.daily}
               >
                 Daily
               </button>
               <button
-                className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''}`}
+                className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''} ${!modeCompletion.blitz ? styles.lockedMode : ''}`}
                 onClick={() => handleModeChange('blitz')}
+                disabled={!modeCompletion.blitz}
               >
                 Blitz
               </button>
             </div>
-            <div className={styles.totalPlayers}>
-              {(totalScores ?? 0)} {(totalScores ?? 0) === 1 ? 'player' : 'players'} today
-            </div>
-            <button className={styles.refreshButton} onClick={handleRefresh}>
-              <IoMdRefresh />
-            </button>
+            <div className={styles.totalPlayers}></div>
+            <div></div>
           </div>
         </div>
         
-        {isLoading ? (
-          <div className={styles.loadingSpinner}></div>
-        ) : error ? (
-          <div className={styles.errorMessage}>{error}</div>
-        ) : (
-          <div className={styles.emptyMessage}>
-            Submit your game and see how you rank against {totalScores} other {totalScores === 1 ? 'player' : 'players'} today!
-          </div>
-        )}
+        <div className={styles.emptyMessage}>
+          {mode === 'blitz'
+            ? 'Complete Blitz mode to unlock the Blitz leaderboard.'
+            : 'Complete Daily mode to unlock today\'s Daily leaderboard.'}
+        </div>
       </div>
     );
   }
@@ -253,14 +278,16 @@ const LeaderboardPopup = ({ onClose }) => {
           <div className={styles.headerControlsRow}>
             <div className={styles.modeToggle}>
               <button
-                className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''}`}
+                className={`${styles.modeButton} ${mode === 'daily' ? styles.activeMode : ''} ${!modeCompletion.daily ? styles.lockedMode : ''}`}
                 onClick={() => handleModeChange('daily')}
+                disabled={!modeCompletion.daily}
               >
                 Daily
               </button>
               <button
-                className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''}`}
+                className={`${styles.modeButton} ${mode === 'blitz' ? styles.activeMode : ''} ${!modeCompletion.blitz ? styles.lockedMode : ''}`}
                 onClick={() => handleModeChange('blitz')}
+                disabled={!modeCompletion.blitz}
               >
                 Blitz
               </button>
