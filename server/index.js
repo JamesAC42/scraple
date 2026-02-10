@@ -16,6 +16,7 @@ const {
   getBlitzLeaderboard,
   getBlitzTotalScores,
   getBlitzWordBreakdown,
+  setPlayerNickname,
   initializeDictionary
 } = require('./controllers/leaderboard');
 
@@ -60,6 +61,7 @@ app.post('/api/leaderboard/submit', submitScore);
 app.get('/api/leaderboard', getLeaderboard);
 app.get('/api/leaderboard/total', getTotalScores);
 app.get('/api/leaderboard/word-breakdown', getWordBreakdown);
+app.post('/api/player/nickname', setPlayerNickname);
 app.post('/api/blitz/leaderboard/submit', submitBlitzScore);
 app.get('/api/blitz/leaderboard', getBlitzLeaderboard);
 app.get('/api/blitz/leaderboard/total', getBlitzTotalScores);

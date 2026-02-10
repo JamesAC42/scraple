@@ -49,6 +49,11 @@ h1, h2, h3, h4, h5, h6, p, span, div, a, button, input, textarea {
   top: 1rem;
   right: 1rem;
   z-index: 1000;
+
+  @media (max-width: 400px) {
+    left: 1rem;
+    right: auto;
+  }
 }
 
 .content-container {

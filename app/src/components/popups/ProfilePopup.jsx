@@ -1,0 +1,96 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import styles from './ProfilePopup.module.scss';
+import {
+  PLAYER_ID_KEY,
+  NICKNAME_MAX_LENGTH,
+  getPlayerHash,
+  getStoredNickname,
+  saveNicknameToServer,
+  setStoredNickname,
+  validateNickname
+} from '@/lib/nickname';
+
+const ProfilePopup = () => {
+  const [playerId, setPlayerId] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedMessage, setSavedMessage] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedPlayerId = localStorage.getItem(PLAYER_ID_KEY) || '';
+    setPlayerId(storedPlayerId);
+    setNickname(getStoredNickname());
+  }, []);
+
+  const handleSave = async () => {
+    setError('');
+    setSavedMessage('');
+
+    const validation = validateNickname(nickname);
+    if (!validation.valid) {
+      setError(validation.error);
+      return;
+    }
+
+    if (!playerId) {
+      setError('Unable to save nickname right now.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const data = await saveNicknameToServer({
+        playerId,
+        nickname: validation.value
+      });
+      setStoredNickname(data.nickname || validation.value);
+      setNickname(data.nickname || validation.value);
+      setSavedMessage('Nickname updated.');
+      window.dispatchEvent(new CustomEvent('scraple:nickname-updated'));
+    } catch (saveError) {
+      setError(saveError.message || 'Failed to save nickname.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const playerHash = getPlayerHash(playerId);
+
+  return (
+    <div className={styles.profileContainer}>
+      <p className={styles.profileHint}>
+        Your leaderboard identity is your nickname plus ID hash.
+      </p>
+      <div className={styles.hashRow}>ID hash: <strong>#{playerHash}</strong></div>
+      <label className={styles.fieldLabel} htmlFor="profile-nickname-input">
+        Nickname
+      </label>
+      <input
+        id="profile-nickname-input"
+        className={styles.nicknameInput}
+        value={nickname}
+        maxLength={NICKNAME_MAX_LENGTH}
+        onChange={(event) => {
+          setNickname(event.target.value);
+          setError('');
+          setSavedMessage('');
+        }}
+        placeholder="Enter nickname"
+      />
+      <div className={styles.inputMeta}>{nickname.length}/{NICKNAME_MAX_LENGTH}</div>
+
+      {error && <div className={styles.error}>{error}</div>}
+      {savedMessage && <div className={styles.saved}>{savedMessage}</div>}
+
+      <button className={styles.saveButton} onClick={handleSave} disabled={isSaving}>
+        {isSaving ? 'Saving...' : 'Save'}
+      </button>
+    </div>
+  );
+};
+
+export default ProfilePopup;

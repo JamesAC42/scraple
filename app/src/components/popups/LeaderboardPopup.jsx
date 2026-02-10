@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import styles from './LeaderboardPopup.module.scss';
 import { IoMdRefresh } from 'react-icons/io';
+import { getNicknameBadgeStyle, getPlayerHash } from '@/lib/nickname';
 
 const LeaderboardPopup = ({ onClose }) => {
   const [leaderboard, setLeaderboard] = useState(null);
@@ -291,6 +292,7 @@ const LeaderboardPopup = ({ onClose }) => {
       <div className={styles.leaderboardList}>
         <div className={styles.leaderboardListHeader}>
           <div className={styles.rankColumn}>Rank</div>
+          <div className={styles.identityColumn}>Player</div>
           <div className={styles.scoreColumn}>Score</div>
           <div className={styles.boardColumn}>Board</div>
         </div>
@@ -307,6 +309,17 @@ const LeaderboardPopup = ({ onClose }) => {
                   {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : '🥉'}
                 </span>
               )}
+            </div>
+            <div className={styles.identityColumn}>
+              {entry.nickname && (
+                <span
+                  className={styles.nicknameBadge}
+                  style={getNicknameBadgeStyle(entry.playerHash || getPlayerHash(entry.playerId))}
+                >
+                  {entry.nickname}
+                </span>
+              )}
+              <span className={styles.hashTag}>#{entry.playerHash || getPlayerHash(entry.playerId)}</span>
             </div>
             <div className={styles.scoreColumn}>{entry.score}</div>
             <div className={styles.boardColumn}>

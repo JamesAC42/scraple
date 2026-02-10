@@ -7,6 +7,7 @@ import InfoPopup from "./popups/InfoPopup";
 import HelpPopup from "./popups/HelpPopup";
 import LeaderboardPopup from "./popups/LeaderboardPopup";
 import SharePopup from "./popups/SharePopup";
+import ProfilePopup from "./popups/ProfilePopup";
 
 import { IoMdClose } from "react-icons/io";
 
@@ -28,6 +29,8 @@ const PopupContainer = () => {
                 return "Leaderboard";
             case 'share':
                 return "Share your board";
+            case 'profile':
+                return "Profile";
             default:
                 return "";
         }
@@ -43,6 +46,8 @@ const PopupContainer = () => {
                 return <LeaderboardPopup onClose={handleClosePopup}/>;
             case 'share':
                 return <SharePopup onClose={handleClosePopup}/>;
+            case 'profile':
+                return <ProfilePopup onClose={handleClosePopup}/>;
             default:
                 return null;
         }

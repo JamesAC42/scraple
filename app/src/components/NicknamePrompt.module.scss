@@ -1,0 +1,114 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200000;
+  background-color: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal {
+  width: min(35rem, 95vw);
+  background-color: var(--background);
+  border-radius: 0.6rem;
+  padding: 1.2rem;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+
+  h3 {
+    margin: 0;
+    font-size: 1.15rem;
+  }
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #c8ccd2;
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.7rem;
+  font-size: 1rem;
+  color: #111;
+}
+
+.charCount {
+  text-align: right;
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.error {
+  color: #c62828;
+  font-size: 0.9rem;
+}
+
+.explainerGraphic {
+  background: linear-gradient(135deg, #eef4ff 0%, #f7fbff 100%);
+  border: 1px solid #c8dbff;
+  border-radius: 0.6rem;
+  padding: 0.7rem;
+
+  p {
+    margin: 0.5rem 0 0;
+    color: #3e4d69;
+    font-size: 0.9rem;
+  }
+}
+
+.explainerTitle {
+  color: #355ea8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.identityChipRow {
+  margin-top: 0.45rem;
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.nameChip,
+.hashChip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid #aac4f5;
+  background-color: #fff;
+  padding: 0.22rem 0.6rem;
+  font-weight: 700;
+  color: #214f9a;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.enterButton,
+.noThanksButton {
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.enterButton {
+  border: 1px solid #2c7be5;
+  background-color: #2c7be5;
+  color: #fff;
+}
+
+.noThanksButton {
+  border: 1px solid #ccd2db;
+  background-color: #fff;
+  color: #444;
+}

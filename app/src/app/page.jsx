@@ -3,7 +3,7 @@
 import styles from "../styles/pages/page.module.scss";
 import Image from "next/image";
 import { useState, useEffect, useRef } from "react";
-import { IoMdHelpCircleOutline, IoMdInformationCircleOutline, IoMdTrophy, IoMdFlash, IoMdCalendar } from "react-icons/io";
+import { IoMdHelpCircleOutline, IoMdInformationCircleOutline, IoMdTrophy, IoMdFlash, IoMdCalendar, IoMdPerson } from "react-icons/io";
 import Board from "@/components/board/Board";
 import Tile from "@/components/board/Tile";
 import TileContainer from "@/components/board/TileContainer";
@@ -24,6 +24,12 @@ import Confirm from "@/components/board/Confirm";
 import finishGame from "@/lib/finishGame";
 import calculateCurrentScore from "@/lib/calculateCurrentScore";
 import ScoreTracker from "@/components/board/ScoreTracker";
+import NicknamePrompt from "@/components/NicknamePrompt";
+import {
+  PLAYER_ID_KEY,
+  getStoredNickname,
+  setStoredNickname
+} from "@/lib/nickname";
 
 // Letter points mapping
 const letterPoints = {
@@ -41,7 +47,6 @@ const letterPoints = {
 const STORAGE_KEY = 'scraple_game_state';
 const GAME_DATE_KEY = 'scraple_game_date';
 const GAME_RESULTS_KEY = 'scraple_game_results';
-const PLAYER_ID_KEY = 'scraple_player_id';
 const HELP_SEEN_KEY = 'scraple_help_seen'; // New key for tracking if help popup has been seen
 const DATA_VERSION_KEY = 'scraple_data_version'; // New key for tracking data version
 const BLITZ_STORAGE_KEY = 'scraple_blitz_game_state';
@@ -177,6 +182,8 @@ export default function Home() {
   const [blitzCompleted, setBlitzCompleted] = useState(false);
   const [wordBreakdown, setWordBreakdown] = useState([]);
   const [hasRequestedWordBreakdown, setHasRequestedWordBreakdown] = useState(false);
+  const [playerNickname, setPlayerNickname] = useState('');
+  const [showNicknamePrompt, setShowNicknamePrompt] = useState(false);
 
   const [showFinishPopup, setShowFinishPopup] = useState(false);
   const [validationError, setValidationError] = useState('');
@@ -1054,6 +1061,21 @@ export default function Home() {
     }
     
     setPlayerId(storedPlayerId);
+    setPlayerNickname(getStoredNickname());
+  }, []);
+
+  useEffect(() => {
+    const syncNicknameFromStorage = () => {
+      setPlayerNickname(getStoredNickname());
+    };
+
+    syncNicknameFromStorage();
+    window.addEventListener('scraple:nickname-updated', syncNicknameFromStorage);
+    window.addEventListener('storage', syncNicknameFromStorage);
+    return () => {
+      window.removeEventListener('scraple:nickname-updated', syncNicknameFromStorage);
+      window.removeEventListener('storage', syncNicknameFromStorage);
+    };
   }, []);
   
   // Submit score to leaderboard
@@ -1201,6 +1223,10 @@ export default function Home() {
         if (puzzleIdKey && puzzleId) {
           localStorage.setItem(puzzleIdKey, puzzleId);
         }
+      }
+
+      if (!getStoredNickname()) {
+        setShowNicknamePrompt(true);
       }
     } catch (error) {
       console.error("Error calculating game results:", error);
@@ -1482,6 +1508,17 @@ export default function Home() {
             cancel={() => setShowFinishPopup(false)} />
         )
       }
+      {showNicknamePrompt && (
+        <NicknamePrompt
+          playerId={playerId}
+          onDismiss={() => setShowNicknamePrompt(false)}
+          onSaved={(savedNickname) => {
+            setStoredNickname(savedNickname);
+            setPlayerNickname(savedNickname);
+            setShowNicknamePrompt(false);
+          }}
+        />
+      )}
       <div className="page">
         <div className="content-container">
           
@@ -1529,6 +1566,13 @@ export default function Home() {
                 }}
               >
                 <IoMdTrophy />
+              </button>
+              <button
+                className={styles.gameHeaderButton}
+                onClick={() => setActivePopup("profile")}
+                title={playerNickname ? `Nickname: ${playerNickname}` : 'Set nickname'}
+              >
+                <IoMdPerson />
               </button>
               <button 
                 className={styles.gameHeaderButton}

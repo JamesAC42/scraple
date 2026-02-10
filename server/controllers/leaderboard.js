@@ -1,6 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const { getEasternDateString, getEasternDisplayDate, getOrCreateDailyPuzzle } = require('../lib/dailyPuzzle');
+const {
+  PLAYER_NICKNAME_HASH_KEY,
+  validateNickname,
+  getPlayerHash
+} = require('../lib/nickname');
 
 // Redis key for storing the daily leaderboard
 const REDIS_KEY_PREFIX = 'scraple:leaderboard:';
@@ -342,6 +347,29 @@ const getWordAverageKeys = (redisKey) => ({
   playersKey: `${redisKey}${WORD_AVG_PLAYERS_SUFFIX}`
 });
 
+const getNicknameMapForPlayerIds = async (redisClient, playerIds = []) => {
+  const uniquePlayerIds = [...new Set(playerIds.filter(Boolean))];
+  if (uniquePlayerIds.length === 0) return new Map();
+
+  const nicknames = await redisClient.sendCommand(['HMGET', PLAYER_NICKNAME_HASH_KEY, ...uniquePlayerIds]);
+  const nicknameMap = new Map();
+
+  uniquePlayerIds.forEach((id, index) => {
+    const nickname = nicknames[index];
+    nicknameMap.set(id, typeof nickname === 'string' && nickname.trim() ? nickname.trim() : null);
+  });
+
+  return nicknameMap;
+};
+
+const buildIdentityForPlayer = (playerId, nicknameMap) => {
+  const nickname = nicknameMap.get(playerId) || null;
+  return {
+    nickname,
+    playerHash: getPlayerHash(playerId)
+  };
+};
+
 const normalizeValidWordSet = (words = []) => {
   return [...new Set(
     words
@@ -652,6 +680,7 @@ const submitScore = async (req, res) => {
       value: member.value,
       score: Number(member.score)
     }));
+    const nicknameMap = await getNicknameMapForPlayerIds(redisClient, formattedTopScores.map((item) => item.value));
     
     // Check if player is in top 10
     const isInTopTen = rank !== null && rank < 10;
@@ -664,6 +693,7 @@ const submitScore = async (req, res) => {
       topScores: formattedTopScores.map(item => ({
         playerId: item.value,
         score: item.score,
+        ...buildIdentityForPlayer(item.value, nicknameMap),
         isCurrentPlayer: item.value === playerId
       })),
       words // Include word results in response
@@ -755,6 +785,7 @@ const getLeaderboard = async (req, res) => {
       // Get game states for the top 100 players
       const topPlayerIds = allScores.slice(0, 300).map(item => item.value);
       const gameStates = {};
+      const nicknameMap = await getNicknameMapForPlayerIds(redisClient, allScores.map((item) => item.value));
       
       if (topPlayerIds.length > 0) {
         // Check if states key exists
@@ -795,6 +826,7 @@ const getLeaderboard = async (req, res) => {
           rank: index + 1,
           playerId: item.value,
           score: item.score,
+          ...buildIdentityForPlayer(item.value, nicknameMap),
           isCurrentPlayer: item.value === playerId,
           gameState: gameStates[item.value] || null
         })),
@@ -967,6 +999,7 @@ const submitBlitzScore = async (req, res) => {
       value: member.value,
       score: Number(member.score)
     }));
+    const nicknameMap = await getNicknameMapForPlayerIds(redisClient, formattedTopScores.map((item) => item.value));
     
     // Check if player is in top 10
     const isInTopTen = rank !== null && rank < 10;
@@ -979,6 +1012,7 @@ const submitBlitzScore = async (req, res) => {
       topScores: formattedTopScores.map(item => ({
         playerId: item.value,
         score: item.score,
+        ...buildIdentityForPlayer(item.value, nicknameMap),
         isCurrentPlayer: item.value === playerId
       })),
       words // Include word results in response
@@ -1067,6 +1101,7 @@ const getBlitzLeaderboard = async (req, res) => {
       // Get game states for the top 300 players
       const topPlayerIds = allScores.slice(0, 300).map(item => item.value);
       const gameStates = {};
+      const nicknameMap = await getNicknameMapForPlayerIds(redisClient, allScores.map((item) => item.value));
       
       if (topPlayerIds.length > 0) {
         // Check if states key exists
@@ -1107,6 +1142,7 @@ const getBlitzLeaderboard = async (req, res) => {
           rank: index + 1,
           playerId: item.value,
           score: item.score,
+          ...buildIdentityForPlayer(item.value, nicknameMap),
           isCurrentPlayer: item.value === playerId,
           gameState: gameStates[item.value] || null
         })),
@@ -1224,6 +1260,36 @@ const getBlitzWordBreakdown = async (req, res) => {
   }
 };
 
+const setPlayerNickname = async (req, res) => {
+  try {
+    const redisClient = req.app.get('redisClient');
+    if (!redisClient || !redisClient.isOpen) {
+      return res.status(503).json({ error: 'Leaderboard service unavailable' });
+    }
+
+    const { playerId, nickname } = req.body;
+    if (!playerId || !nickname) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const nicknameValidation = validateNickname(nickname);
+    if (!nicknameValidation.valid) {
+      return res.status(400).json({ error: nicknameValidation.error });
+    }
+
+    await redisClient.hSet(PLAYER_NICKNAME_HASH_KEY, playerId, nicknameValidation.value);
+
+    return res.status(200).json({
+      playerId,
+      nickname: nicknameValidation.value,
+      playerHash: getPlayerHash(playerId)
+    });
+  } catch (error) {
+    console.error('Error setting player nickname:', error);
+    return res.status(500).json({ error: 'Failed to set nickname' });
+  }
+};
+
 module.exports = { 
   submitScore, 
   getLeaderboard, 
@@ -1233,6 +1299,7 @@ module.exports = {
   getBlitzLeaderboard,
   getBlitzTotalScores,
   getBlitzWordBreakdown,
+  setPlayerNickname,
   initializeDictionary,
   getWordInfo
 }; 
