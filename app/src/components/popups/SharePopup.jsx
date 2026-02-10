@@ -189,11 +189,19 @@ const SharePopup = () => {
         <>
           <img className={styles.shareImage} src={imageDataUrl} alt="Shareable board image" />
           <div className={styles.actions}>
-            <button className={styles.copyButton} onClick={copyImageToClipboard}>
+            <button
+              className={styles.copyButton}
+              onClick={copyImageToClipboard}
+              data-umami-event="Copy image in share popup"
+            >
               <IoCopyOutline />
               <span>Copy Image</span>
             </button>
-            <button className={styles.downloadButton} onClick={downloadImage}>
+            <button
+              className={styles.downloadButton}
+              onClick={downloadImage}
+              data-umami-event="Download image in share popup"
+            >
               <IoDownloadOutline />
               <span>Download Image</span>
             </button>

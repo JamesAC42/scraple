@@ -1571,6 +1571,7 @@ export default function Home() {
                   localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode);
                   setActivePopup("leaderboard");
                 }}
+                data-umami-event="View leaderboard"
               >
                 <IoMdTrophy />
               </button>
@@ -1578,6 +1579,7 @@ export default function Home() {
                 className={styles.gameHeaderButton}
                 onClick={() => setActivePopup("profile")}
                 title={playerNickname ? `Nickname: ${playerNickname}` : 'Set nickname'}
+                data-umami-event="Open profile popup"
               >
                 <IoMdPerson />
               </button>
@@ -1734,6 +1736,7 @@ export default function Home() {
                       localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode);
                       setActivePopup("leaderboard");
                     }}
+                    data-umami-event="View leaderboard"
                   >
                     <IoMdTrophy /> View Full Leaderboard
                   </button>
@@ -1744,6 +1747,7 @@ export default function Home() {
                 <button 
                   className={styles.shareButton}
                   onClick={handleShare}
+                  data-umami-event="Open share board image popup"
                 >
                   <IoShareSocialOutline /> 
                   Share my board
