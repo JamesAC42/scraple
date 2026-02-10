@@ -21,6 +21,40 @@ const normalizeDateString = (value) => {
   return trimmed;
 };
 
+const renderFormattedDefinition = (definition, styles) => {
+  if (!definition) return null;
+
+  const segments = definition.split(/(\([^)]+\)|\[[^\]]+\])/g).filter(Boolean);
+  return segments.map((segment, index) => {
+    const parenMatch = segment.match(/^\((.*)\)$/);
+    if (parenMatch) {
+      return (
+        <span key={`def-${index}`} className={styles.definitionParen}>
+          (<strong>{parenMatch[1]}</strong>)
+        </span>
+      );
+    }
+
+    const bracketMatch = segment.match(/^\[(.*)\]$/);
+    if (bracketMatch) {
+      return (
+        <span key={`def-${index}`} className={styles.definitionBracket}>
+          [{bracketMatch[1]}]
+        </span>
+      );
+    }
+
+    return <span key={`def-${index}`}>{segment}</span>;
+  });
+};
+
+const bonusTileLabels = {
+  DOUBLE_LETTER: "2L",
+  TRIPLE_LETTER: "3L",
+  DOUBLE_WORD: "2W",
+  TRIPLE_WORD: "3W"
+};
+
 const getTodayDate = () => {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York'
@@ -36,6 +70,11 @@ const LeaderboardPopup = ({ onClose }) => {
   const [mode, setMode] = useState('daily');
   const [modeCompletion, setModeCompletion] = useState({ daily: false, blitz: false });
   const [isModeReady, setIsModeReady] = useState(false);
+  const [expandedEntryId, setExpandedEntryId] = useState(null);
+  const [wordBreakdownsByPlayer, setWordBreakdownsByPlayer] = useState({});
+  const [breakdownLoadingByPlayer, setBreakdownLoadingByPlayer] = useState({});
+  const [breakdownErrorByPlayer, setBreakdownErrorByPlayer] = useState({});
+  const [showBreakdownHint, setShowBreakdownHint] = useState(false);
   const fetchRequestIdRef = useRef(0);
 
   const LEADERBOARD_MODE_KEY = 'scraple_leaderboard_mode';
@@ -43,6 +82,7 @@ const LeaderboardPopup = ({ onClose }) => {
   const BLITZ_RESULTS_KEY = 'scraple_blitz_game_results';
   const DAILY_DATE_KEY = 'scraple_game_date';
   const BLITZ_DATE_KEY = 'scraple_blitz_game_date';
+  const BREAKDOWN_HINT_SEEN_KEY = 'scraple_leaderboard_breakdown_hint_seen';
 
   const hasCompletedModeForToday = (modeValue) => {
     const isBlitz = modeValue === 'blitz';
@@ -76,6 +116,12 @@ const LeaderboardPopup = ({ onClose }) => {
     setModeCompletion(completion);
     setMode(pickInitialMode(preferredMode, completion));
     setIsModeReady(true);
+
+    const hasSeenBreakdownHint = localStorage.getItem(BREAKDOWN_HINT_SEEN_KEY) === 'true';
+    if (!hasSeenBreakdownHint) {
+      setShowBreakdownHint(true);
+      localStorage.setItem(BREAKDOWN_HINT_SEEN_KEY, 'true');
+    }
   }, []);
 
   useEffect(() => {
@@ -104,7 +150,8 @@ const LeaderboardPopup = ({ onClose }) => {
   }, [mode, isModeReady]);
 
   const getModeEndpoints = (modeValue) => ({
-    leaderboard: modeValue === 'blitz' ? '/api/blitz/leaderboard' : '/api/leaderboard'
+    leaderboard: modeValue === 'blitz' ? '/api/blitz/leaderboard' : '/api/leaderboard',
+    wordBreakdown: modeValue === 'blitz' ? '/api/blitz/leaderboard/word-breakdown' : '/api/leaderboard/word-breakdown'
   });
   
   const fetchLeaderboard = async (id, modeValue = mode) => {
@@ -137,6 +184,10 @@ const LeaderboardPopup = ({ onClose }) => {
   
   const handleRefresh = () => {
     if (!modeIsUnlocked(mode)) return;
+    setExpandedEntryId(null);
+    setWordBreakdownsByPlayer({});
+    setBreakdownLoadingByPlayer({});
+    setBreakdownErrorByPlayer({});
     fetchLeaderboard(playerId, mode);
   };
 
@@ -146,7 +197,65 @@ const LeaderboardPopup = ({ onClose }) => {
     localStorage.setItem(LEADERBOARD_MODE_KEY, nextMode);
     setLeaderboard(null);
     setError(null);
+    setExpandedEntryId(null);
+    setWordBreakdownsByPlayer({});
+    setBreakdownLoadingByPlayer({});
+    setBreakdownErrorByPlayer({});
     setMode(nextMode);
+  };
+
+  const fetchWordBreakdownForPlayer = async (entry) => {
+    const targetPlayerId = entry?.playerId;
+    if (!targetPlayerId) return;
+
+    setBreakdownLoadingByPlayer((prev) => ({ ...prev, [targetPlayerId]: true }));
+    setBreakdownErrorByPlayer((prev) => ({ ...prev, [targetPlayerId]: '' }));
+
+    try {
+      const { wordBreakdown } = getModeEndpoints(mode);
+      const params = new URLSearchParams({ playerId: targetPlayerId });
+      if (mode === 'blitz' && entry?.gameState?.puzzleId) {
+        params.set('puzzleId', entry.gameState.puzzleId);
+      }
+
+      const response = await fetch(`${wordBreakdown}?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch word breakdown: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setWordBreakdownsByPlayer((prev) => ({
+        ...prev,
+        [targetPlayerId]: Array.isArray(data.words) ? data.words : []
+      }));
+    } catch (breakdownError) {
+      console.error('Error fetching word breakdown for leaderboard entry:', breakdownError);
+      setBreakdownErrorByPlayer((prev) => ({
+        ...prev,
+        [targetPlayerId]: 'Failed to load this board breakdown. Try again.'
+      }));
+    } finally {
+      setBreakdownLoadingByPlayer((prev) => ({ ...prev, [targetPlayerId]: false }));
+    }
+  };
+
+  const handleBoardToggle = (entry) => {
+    const targetPlayerId = entry?.playerId;
+    if (!targetPlayerId) return;
+
+    const isExpanded = expandedEntryId === targetPlayerId;
+    if (isExpanded) {
+      setExpandedEntryId(null);
+      return;
+    }
+
+    setExpandedEntryId(targetPlayerId);
+
+    const hasExistingBreakdown = Array.isArray(wordBreakdownsByPlayer[targetPlayerId]);
+    const isAlreadyLoading = Boolean(breakdownLoadingByPlayer[targetPlayerId]);
+    if (!hasExistingBreakdown && !isAlreadyLoading) {
+      fetchWordBreakdownForPlayer(entry);
+    }
   };
   
   // If the user hasn't submitted their score, show a message with total scores
@@ -326,6 +435,13 @@ const LeaderboardPopup = ({ onClose }) => {
           Submit your score to see your ranking!
         </div>
       )}
+
+      {showBreakdownHint && (
+        <div className={styles.breakdownHint}>
+          <span className={styles.breakdownHintStar}>★</span>
+          <span>New! Click a board to see the breakdown</span>
+        </div>
+      )}
       
       <div className={styles.leaderboardList}>
         <div className={styles.leaderboardListHeader}>
@@ -335,64 +451,156 @@ const LeaderboardPopup = ({ onClose }) => {
           <div className={styles.boardColumn}>Board</div>
         </div>
         
-        {leaderboard.scores.map((entry) => (
-          <div 
-            key={entry.playerId} 
-            className={`${styles.leaderboardEntry} ${entry.isCurrentPlayer ? styles.currentPlayer : ''}`}
-          >
-            <div className={styles.rankColumn}>
-              {entry.rank}
-              {entry.rank <= 3 && (
-                <span className={styles.medal}>
-                  {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : '🥉'}
-                </span>
-              )}
-            </div>
-            <div className={styles.identityColumn}>
-              {entry.nickname ? (
-                <>
-                  <div className={styles.identityLine}>
-                    <span
-                      className={styles.nicknameBadge}
-                      style={getNicknameBadgeStyle(entry.playerHash || getPlayerHash(entry.playerId))}
-                    >
-                      {entry.nickname}
+        {leaderboard.scores.map((entry) => {
+          const isExpanded = expandedEntryId === entry.playerId;
+          const isLoadingBreakdown = Boolean(breakdownLoadingByPlayer[entry.playerId]);
+          const breakdownError = breakdownErrorByPlayer[entry.playerId];
+          const words = Array.isArray(wordBreakdownsByPlayer[entry.playerId])
+            ? wordBreakdownsByPlayer[entry.playerId]
+            : [];
+
+          return (
+            <div key={entry.playerId} className={styles.entryWrapper}>
+              <div 
+                className={`${styles.leaderboardEntry} ${entry.isCurrentPlayer ? styles.currentPlayer : ''}`}
+              >
+                <div className={styles.rankColumn}>
+                  {entry.rank}
+                  {entry.rank <= 3 && (
+                    <span className={styles.medal}>
+                      {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : '🥉'}
                     </span>
-                  </div>
-                  {Number(entry.streak) > 1 && (
-                    <div className={styles.identityLine}>
-                      <span className={styles.streakBadge}>
-                        <span className={styles.streakEmoji}>🔥</span>
-                        <span className={styles.streakValue}>{entry.streak}</span>
-                      </span>
-                    </div>
                   )}
-                  <div className={styles.identityLine}>
-                    <span className={styles.hashTag}>#{entry.playerHash || getPlayerHash(entry.playerId)}</span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className={styles.identityLine}>
-                    <span className={styles.hashTag}>#{entry.playerHash || getPlayerHash(entry.playerId)}</span>
-                  </div>
-                  {Number(entry.streak) > 1 && (
-                    <div className={styles.identityLine}>
-                      <span className={styles.streakBadge}>
-                        <span className={styles.streakEmoji}>🔥</span>
-                        <span className={styles.streakValue}>{entry.streak}</span>
-                      </span>
-                    </div>
+                </div>
+                <div className={styles.identityColumn}>
+                  {entry.nickname ? (
+                    <>
+                      <div className={styles.identityLine}>
+                        <span
+                          className={styles.nicknameBadge}
+                          style={getNicknameBadgeStyle(entry.playerHash || getPlayerHash(entry.playerId))}
+                        >
+                          {entry.nickname}
+                        </span>
+                      </div>
+                      {Number(entry.streak) > 1 && (
+                        <div className={styles.identityLine}>
+                          <span className={styles.streakBadge}>
+                            <span className={styles.streakEmoji}>🔥</span>
+                            <span className={styles.streakValue}>{entry.streak}</span>
+                          </span>
+                        </div>
+                      )}
+                      <div className={styles.identityLine}>
+                        <span className={styles.hashTag}>#{entry.playerHash || getPlayerHash(entry.playerId)}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className={styles.identityLine}>
+                        <span className={styles.hashTag}>#{entry.playerHash || getPlayerHash(entry.playerId)}</span>
+                      </div>
+                      {Number(entry.streak) > 1 && (
+                        <div className={styles.identityLine}>
+                          <span className={styles.streakBadge}>
+                            <span className={styles.streakEmoji}>🔥</span>
+                            <span className={styles.streakValue}>{entry.streak}</span>
+                          </span>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
+                </div>
+                <div className={styles.scoreColumn}>{entry.score}</div>
+                <div className={styles.boardColumn}>
+                  <button
+                    type="button"
+                    className={`${styles.boardToggleButton} ${isExpanded ? styles.boardToggleActive : ''}`}
+                    onClick={() => handleBoardToggle(entry)}
+                    aria-expanded={isExpanded}
+                    aria-label={`Toggle board breakdown for rank ${entry.rank}`}
+                  >
+                    {renderMiniBoard(entry.gameState)}
+                  </button>
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div className={styles.breakdownRow}>
+                  <div className={styles.breakdownPanel}>
+                    <div className={styles.breakdownTitle}>
+                      Work Breakdown for {entry.nickname ? entry.nickname : `#${entry.playerHash || getPlayerHash(entry.playerId)}`}
+                    </div>
+                    {isLoadingBreakdown && (
+                      <div className={styles.breakdownLoading}>Loading definitions and usage stats...</div>
+                    )}
+                    {!isLoadingBreakdown && breakdownError && (
+                      <div className={styles.breakdownLoading}>{breakdownError}</div>
+                    )}
+                    {!isLoadingBreakdown && !breakdownError && words.length === 0 && (
+                      <div className={styles.breakdownLoading}>This player did not create any words.</div>
+                    )}
+                    {!isLoadingBreakdown && !breakdownError && words.length > 0 && (
+                      <ul className={styles.breakdownList}>
+                        {words.map((wordResult, index) => (
+                          <li
+                            key={`${entry.playerId}-${wordResult.word}-${index}`}
+                            className={`${styles.breakdownItem} ${wordResult.valid ? styles.validWord : styles.invalidWord}`}
+                          >
+                            <div className={styles.breakdownTopRow}>
+                              <div className={styles.wordText}>{wordResult.word}</div>
+                              <div className={styles.wordTopRight}>
+                                <div className={styles.wordScore}>
+                                  {wordResult.score >= 0 ? '+' : ''}{wordResult.score}
+                                </div>
+                                {Array.isArray(wordResult.usedBonusTypes) && wordResult.usedBonusTypes.length > 0 && (
+                                  <div className={styles.bonusTileIcons}>
+                                    {wordResult.usedBonusTypes.map((bonusType) => (
+                                      <span key={`${entry.playerId}-${wordResult.word}-${bonusType}`} className={`${styles.bonusTileIcon} ${styles[`bonus${bonusType}`]}`}>
+                                        {bonusTileLabels[bonusType] || bonusType}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {wordResult.bonusPraise && (
+                              <div className={styles.bonusPraise}>
+                                <span className={styles.praiseIcon}>★</span>
+                                {wordResult.bonusPraise}
+                              </div>
+                            )}
+                            <div className={styles.breakdownDefinition}>
+                              {wordResult.definition
+                                ? renderFormattedDefinition(wordResult.definition, styles)
+                                : (wordResult.valid ? 'Definition unavailable.' : 'Not a valid dictionary word.')}
+                            </div>
+                            <div className={styles.breakdownMeta}>
+                              {wordResult.playedByOthersCount === null
+                                ? 'Usage stats loading...'
+                                : `${wordResult.playedByOthersCount} other player${wordResult.playedByOthersCount === 1 ? '' : 's'} used this word today`}
+                            </div>
+                            <div className={styles.breakdownMetaSecondary}>
+                              {typeof wordResult.averageScoreAmongPlayers === 'number'
+                                ? `Average score of players who used this word: ${wordResult.averageScoreAmongPlayers.toFixed(2)}`
+                                : 'Average score of players who used this word: loading...'}
+                            </div>
+                            {(wordResult.isHighScoringSpecial || wordResult.isUniqueTodaySpecial) && (
+                              <div className={styles.specialTags}>
+                                {wordResult.isHighScoringSpecial && <span className={`${styles.specialTag} ${styles.specialTagHigh}`}>50+ POINT WORD</span>}
+                                {wordResult.isUniqueTodaySpecial && <span className={`${styles.specialTag} ${styles.specialTagUnique}`}>UNIQUE TODAY</span>}
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-            <div className={styles.scoreColumn}>{entry.score}</div>
-            <div className={styles.boardColumn}>
-              {renderMiniBoard(entry.gameState)}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
