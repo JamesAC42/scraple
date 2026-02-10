@@ -131,7 +131,7 @@ export const saveNicknameToServer = async ({ playerId, nickname }) => {
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ playerId, nickname })
+    body: JSON.stringify({ playerId, nickname: collapseNicknameWhitespace(nickname) })
   });
 
   const data = await response.json().catch(() => ({}));

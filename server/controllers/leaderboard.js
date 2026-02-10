@@ -1268,11 +1268,21 @@ const setPlayerNickname = async (req, res) => {
     }
 
     const { playerId, nickname } = req.body;
-    if (!playerId || !nickname) {
+    if (!playerId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const nicknameValidation = validateNickname(nickname);
+    const cleanedNickname = String(nickname || '').trim();
+    if (!cleanedNickname) {
+      await redisClient.hDel(PLAYER_NICKNAME_HASH_KEY, playerId);
+      return res.status(200).json({
+        playerId,
+        nickname: null,
+        playerHash: getPlayerHash(playerId)
+      });
+    }
+
+    const nicknameValidation = validateNickname(cleanedNickname);
     if (!nicknameValidation.valid) {
       return res.status(400).json({ error: nicknameValidation.error });
     }

@@ -50,6 +50,26 @@
   }
 }
 
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.removeButton {
+  border: 1px solid #d77f7f;
+  border-radius: 0.5rem;
+  background-color: #fff5f5;
+  color: #8c1d1d;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  font-weight: 700;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
 .error {
   color: #c62828;
   font-size: 0.9rem;

@@ -58,6 +58,32 @@ const ProfilePopup = () => {
     }
   };
 
+  const handleRemoveNickname = async () => {
+    setError('');
+    setSavedMessage('');
+
+    if (!playerId) {
+      setError('Unable to remove nickname right now.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await saveNicknameToServer({
+        playerId,
+        nickname: ''
+      });
+      setStoredNickname('');
+      setNickname('');
+      setSavedMessage('Nickname removed.');
+      window.dispatchEvent(new CustomEvent('scraple:nickname-updated'));
+    } catch (saveError) {
+      setError(saveError.message || 'Failed to remove nickname.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const playerHash = getPlayerHash(playerId);
 
   return (
@@ -86,9 +112,18 @@ const ProfilePopup = () => {
       {error && <div className={styles.error}>{error}</div>}
       {savedMessage && <div className={styles.saved}>{savedMessage}</div>}
 
-      <button className={styles.saveButton} onClick={handleSave} disabled={isSaving}>
-        {isSaving ? 'Saving...' : 'Save'}
-      </button>
+      <div className={styles.actions}>
+        <button className={styles.saveButton} onClick={handleSave} disabled={isSaving}>
+          {isSaving ? 'Saving...' : 'Save'}
+        </button>
+        <button
+          className={styles.removeButton}
+          onClick={handleRemoveNickname}
+          disabled={isSaving || !nickname.trim()}
+        >
+          Remove nickname
+        </button>
+      </div>
     </div>
   );
 };
