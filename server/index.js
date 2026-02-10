@@ -16,6 +16,10 @@ const {
   getBlitzLeaderboard,
   getBlitzTotalScores,
   getBlitzWordBreakdown,
+  submitComment,
+  getComments,
+  submitBlitzComment,
+  getBlitzComments,
   setPlayerNickname,
   initializeDictionary
 } = require('./controllers/leaderboard');
@@ -61,11 +65,15 @@ app.post('/api/leaderboard/submit', submitScore);
 app.get('/api/leaderboard', getLeaderboard);
 app.get('/api/leaderboard/total', getTotalScores);
 app.get('/api/leaderboard/word-breakdown', getWordBreakdown);
+app.post('/api/leaderboard/comments', submitComment);
+app.get('/api/leaderboard/comments', getComments);
 app.post('/api/player/nickname', setPlayerNickname);
 app.post('/api/blitz/leaderboard/submit', submitBlitzScore);
 app.get('/api/blitz/leaderboard', getBlitzLeaderboard);
 app.get('/api/blitz/leaderboard/total', getBlitzTotalScores);
 app.get('/api/blitz/leaderboard/word-breakdown', getBlitzWordBreakdown);
+app.post('/api/blitz/leaderboard/comments', submitBlitzComment);
+app.get('/api/blitz/leaderboard/comments', getBlitzComments);
 
 // Connect to Redis before starting the server
 async function startServer() {

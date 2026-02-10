@@ -16,6 +16,10 @@ const WORD_AVG_SCORE_SUFFIX = ':word-avg-score';
 const WORD_AVG_PLAYERS_SUFFIX = ':word-avg-score:players';
 const DAILY_STREAKS_KEY = 'scraple:streaks:daily';
 const BLITZ_STREAKS_KEY = 'scraple:streaks:blitz';
+const DAILY_COMMENTS_PREFIX = 'scraple:comments:daily:';
+const BLITZ_COMMENTS_PREFIX = 'scraple:comments:blitz:';
+const COMMENT_PLAYERS_SUFFIX = ':players';
+const COMMENT_MAX_LENGTH = 250;
 const DICTIONARY_INFO_KEY = 'scraple:dictionary:info';
 const DICTIONARY_VERSION_KEY = 'scraple:dictionary:version';
 const DICTIONARY_VERSION = 'collins-2019-defs-v2';
@@ -351,6 +355,53 @@ const getWordAverageKeys = (redisKey) => ({
 
 const getStreakRedisKey = (mode) => {
   return mode === 'blitz' ? BLITZ_STREAKS_KEY : DAILY_STREAKS_KEY;
+};
+
+const getCommentRedisKeys = (mode, date) => {
+  const prefix = mode === 'blitz' ? BLITZ_COMMENTS_PREFIX : DAILY_COMMENTS_PREFIX;
+  const listKey = `${prefix}${date}`;
+  return {
+    listKey,
+    playersKey: `${listKey}${COMMENT_PLAYERS_SUFFIX}`
+  };
+};
+
+const getStatesRedisKeyForMode = (mode, date) => {
+  const leaderboardPrefix = mode === 'blitz' ? BLITZ_LEADERBOARD_PREFIX : REDIS_KEY_PREFIX;
+  return `${leaderboardPrefix}${date}:states`;
+};
+
+const buildCommentUsername = (nickname, playerHash) => {
+  const cleanedNickname = typeof nickname === 'string' ? nickname.trim() : '';
+  if (cleanedNickname) {
+    return `${cleanedNickname}#${playerHash}`;
+  }
+  return playerHash;
+};
+
+const sanitizeComment = (value) => {
+  return String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .trim();
+};
+
+const hasCompletedPuzzleForComment = async ({ redisClient, mode, playerId, gameState, today }) => {
+  const statesKey = getStatesRedisKeyForMode(mode, today);
+  const hasStoredSubmission = await redisClient.hExists(statesKey, playerId);
+  if (hasStoredSubmission) return true;
+  if (!gameState || typeof gameState !== 'object') return false;
+
+  try {
+    if (mode === 'blitz') {
+      await validateBlitzGameState(redisClient, gameState);
+      return true;
+    }
+    await validateDailyGameState(redisClient, gameState, today);
+    return true;
+  } catch (error) {
+    return false;
+  }
 };
 
 const getNicknameMapForPlayerIds = async (redisClient, playerIds = []) => {
@@ -1338,6 +1389,106 @@ const setPlayerNickname = async (req, res) => {
   }
 };
 
+const submitCommentByMode = async (req, res, mode) => {
+  try {
+    const redisClient = req.app.get('redisClient');
+    if (!redisClient || !redisClient.isOpen) {
+      return res.status(503).json({ error: 'Leaderboard service unavailable' });
+    }
+
+    const { playerId, comment, gameState } = req.body;
+    if (!playerId) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const cleanedComment = sanitizeComment(comment);
+    if (!cleanedComment) {
+      return res.status(400).json({ error: 'Comment is required' });
+    }
+    if (cleanedComment.length > COMMENT_MAX_LENGTH) {
+      return res.status(400).json({ error: `Comment must be ${COMMENT_MAX_LENGTH} characters or fewer` });
+    }
+
+    const today = getEasternDateString();
+    const hasCompletedPuzzle = await hasCompletedPuzzleForComment({
+      redisClient,
+      mode,
+      playerId,
+      gameState,
+      today
+    });
+    if (!hasCompletedPuzzle) {
+      return res.status(403).json({ error: 'Complete this puzzle before commenting' });
+    }
+
+    const { listKey, playersKey } = getCommentRedisKeys(mode, today);
+    const didSetPlayer = await redisClient.hSetNX(playersKey, playerId, '1');
+    if (!didSetPlayer) {
+      return res.status(409).json({ error: 'You already left a comment for this puzzle today' });
+    }
+
+    const playerHash = getPlayerHash(playerId);
+    const nickname = await redisClient.hGet(PLAYER_NICKNAME_HASH_KEY, playerId);
+    const username = buildCommentUsername(nickname, playerHash);
+    const serializedComment = JSON.stringify({
+      username,
+      timestamp: new Date().toISOString(),
+      comment: cleanedComment
+    });
+
+    const ttlSeconds = 60 * 60 * 36;
+    await redisClient.lPush(listKey, serializedComment);
+    await redisClient.expire(listKey, ttlSeconds);
+    await redisClient.expire(playersKey, ttlSeconds);
+
+    return res.status(200).json({
+      date: today,
+      mode,
+      comment: serializedComment
+    });
+  } catch (error) {
+    console.error('Error submitting comment:', error);
+    return res.status(500).json({ error: 'Failed to submit comment' });
+  }
+};
+
+const getCommentsByMode = async (req, res, mode) => {
+  try {
+    const redisClient = req.app.get('redisClient');
+    if (!redisClient || !redisClient.isOpen) {
+      return res.status(503).json({ error: 'Leaderboard service unavailable' });
+    }
+
+    const today = getEasternDateString();
+    const { listKey } = getCommentRedisKeys(mode, today);
+    const comments = await redisClient.lRange(listKey, 0, -1);
+    return res.status(200).json({
+      date: today,
+      mode,
+      comments
+    });
+  } catch (error) {
+    console.error('Error getting comments:', error);
+    return res.status(500).json({ error: 'Failed to get comments' });
+  }
+};
+
+const submitComment = async (req, res) => {
+  return submitCommentByMode(req, res, 'daily');
+};
+
+const getComments = async (req, res) => {
+  return getCommentsByMode(req, res, 'daily');
+};
+
+const submitBlitzComment = async (req, res) => {
+  return submitCommentByMode(req, res, 'blitz');
+};
+
+const getBlitzComments = async (req, res) => {
+  return getCommentsByMode(req, res, 'blitz');
+};
+
 module.exports = { 
   submitScore, 
   getLeaderboard, 
@@ -1347,6 +1498,10 @@ module.exports = {
   getBlitzLeaderboard,
   getBlitzTotalScores,
   getBlitzWordBreakdown,
+  submitComment,
+  getComments,
+  submitBlitzComment,
+  getBlitzComments,
   setPlayerNickname,
   initializeDictionary,
   getWordInfo

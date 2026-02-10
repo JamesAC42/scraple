@@ -5,6 +5,7 @@ import styles from './NicknamePrompt.module.scss';
 import {
   NICKNAME_MAX_LENGTH,
   getPlayerHash,
+  setNicknamePromptDismissed,
   saveNicknameToServer,
   setStoredNickname,
   validateNickname
@@ -39,6 +40,7 @@ const NicknamePrompt = ({ playerId, onDismiss, onSaved }) => {
       });
       const savedNickname = data.nickname || validation.value;
       setStoredNickname(savedNickname);
+      setNicknamePromptDismissed(false);
       window.dispatchEvent(new CustomEvent('scraple:nickname-updated'));
       onSaved(savedNickname);
     } catch (saveError) {
@@ -81,7 +83,14 @@ const NicknamePrompt = ({ playerId, onDismiss, onSaved }) => {
           <button className={styles.enterButton} onClick={handleSubmit} disabled={isSaving}>
             {isSaving ? 'Saving...' : 'Enter'}
           </button>
-          <button className={styles.noThanksButton} onClick={onDismiss} disabled={isSaving}>
+          <button
+            className={styles.noThanksButton}
+            onClick={() => {
+              setNicknamePromptDismissed(true);
+              onDismiss();
+            }}
+            disabled={isSaving}
+          >
             No thanks
           </button>
         </div>

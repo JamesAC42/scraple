@@ -1,5 +1,6 @@
 export const PLAYER_ID_KEY = 'scraple_player_id';
 export const PLAYER_NICKNAME_KEY = 'scraple_player_nickname';
+export const NICKNAME_PROMPT_DISMISSED_KEY = 'scraple_nickname_prompt_dismissed';
 export const NICKNAME_MAX_LENGTH = 10;
 
 const RESERVED_TERMS = new Set([
@@ -123,6 +124,20 @@ export const setStoredNickname = (nickname) => {
     return;
   }
   localStorage.setItem(PLAYER_NICKNAME_KEY, cleaned);
+};
+
+export const hasDismissedNicknamePrompt = () => {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem(NICKNAME_PROMPT_DISMISSED_KEY) === '1';
+};
+
+export const setNicknamePromptDismissed = (dismissed) => {
+  if (typeof window === 'undefined') return;
+  if (dismissed) {
+    localStorage.setItem(NICKNAME_PROMPT_DISMISSED_KEY, '1');
+    return;
+  }
+  localStorage.removeItem(NICKNAME_PROMPT_DISMISSED_KEY);
 };
 
 export const saveNicknameToServer = async ({ playerId, nickname }) => {

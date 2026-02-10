@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import styles from './LeaderboardPopup.module.scss';
 import { IoMdRefresh } from 'react-icons/io';
 import { getNicknameBadgeStyle, getPlayerHash } from '@/lib/nickname';
@@ -35,6 +35,8 @@ const LeaderboardPopup = ({ onClose }) => {
   const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
   const [mode, setMode] = useState('daily');
   const [modeCompletion, setModeCompletion] = useState({ daily: false, blitz: false });
+  const [isModeReady, setIsModeReady] = useState(false);
+  const fetchRequestIdRef = useRef(0);
 
   const LEADERBOARD_MODE_KEY = 'scraple_leaderboard_mode';
   const DAILY_RESULTS_KEY = 'scraple_game_results';
@@ -73,9 +75,12 @@ const LeaderboardPopup = ({ onClose }) => {
 
     setModeCompletion(completion);
     setMode(pickInitialMode(preferredMode, completion));
+    setIsModeReady(true);
   }, []);
 
   useEffect(() => {
+    if (!isModeReady) return;
+
     const storedPlayerId = localStorage.getItem('scraple_player_id');
     setPlayerId(storedPlayerId);
 
@@ -96,13 +101,16 @@ const LeaderboardPopup = ({ onClose }) => {
     }
 
     fetchLeaderboard(storedPlayerId, mode);
-  }, [mode]);
+  }, [mode, isModeReady]);
 
   const getModeEndpoints = (modeValue) => ({
     leaderboard: modeValue === 'blitz' ? '/api/blitz/leaderboard' : '/api/leaderboard'
   });
   
   const fetchLeaderboard = async (id, modeValue = mode) => {
+    const requestId = fetchRequestIdRef.current + 1;
+    fetchRequestIdRef.current = requestId;
+
     setIsLoading(true);
     setError(null);
     
@@ -115,11 +123,14 @@ const LeaderboardPopup = ({ onClose }) => {
       }
       
       const data = await response.json();
+      if (fetchRequestIdRef.current !== requestId) return;
       setLeaderboard(data);
     } catch (error) {
+      if (fetchRequestIdRef.current !== requestId) return;
       console.error('Error fetching leaderboard:', error);
       setError('Failed to load leaderboard. Please try again.');
     } finally {
+      if (fetchRequestIdRef.current !== requestId) return;
       setIsLoading(false);
     }
   };

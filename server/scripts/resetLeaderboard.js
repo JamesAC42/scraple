@@ -4,8 +4,15 @@ require('dotenv').config();
 const { createClient } = require('redis');
 const { getEasternDateString } = require('../lib/dailyPuzzle');
 
-const DAILY_PREFIX = 'scraple:leaderboard:';
-const BLITZ_PREFIX = 'scraple:blitz:leaderboard:';
+const DAILY_LEADERBOARD_PREFIX = 'scraple:leaderboard:';
+const BLITZ_LEADERBOARD_PREFIX = 'scraple:blitz:leaderboard:';
+const DAILY_PUZZLE_PREFIX = 'scraple:daily:';
+const BLITZ_PUZZLE_PREFIX = 'scraple:blitz:daily:';
+const DAILY_COMMENTS_PREFIX = 'scraple:comments:daily:';
+const BLITZ_COMMENTS_PREFIX = 'scraple:comments:blitz:';
+const DAILY_STREAKS_KEY = 'scraple:streaks:daily';
+const BLITZ_STREAKS_KEY = 'scraple:streaks:blitz';
+const PLAYER_NICKNAMES_KEY = 'scraple:player:nicknames';
 
 function getArgValue(flag) {
   const index = process.argv.indexOf(flag);
@@ -23,10 +30,61 @@ function hasFlag(flag) {
   return process.argv.includes(flag) || process.argv.some((arg) => arg.startsWith(`${flag}=`));
 }
 
-function getPrefixes(mode) {
-  if (mode === 'daily') return [DAILY_PREFIX];
-  if (mode === 'blitz') return [BLITZ_PREFIX];
-  return [DAILY_PREFIX, BLITZ_PREFIX];
+function getScanPrefixes(mode) {
+  if (mode === 'daily') {
+    return [DAILY_LEADERBOARD_PREFIX, DAILY_PUZZLE_PREFIX, DAILY_COMMENTS_PREFIX];
+  }
+  if (mode === 'blitz') {
+    return [BLITZ_LEADERBOARD_PREFIX, BLITZ_PUZZLE_PREFIX, BLITZ_COMMENTS_PREFIX];
+  }
+  return [
+    DAILY_LEADERBOARD_PREFIX,
+    BLITZ_LEADERBOARD_PREFIX,
+    DAILY_PUZZLE_PREFIX,
+    BLITZ_PUZZLE_PREFIX,
+    DAILY_COMMENTS_PREFIX,
+    BLITZ_COMMENTS_PREFIX
+  ];
+}
+
+function getGlobalKeys(mode) {
+  if (mode === 'daily') return [DAILY_STREAKS_KEY, PLAYER_NICKNAMES_KEY];
+  if (mode === 'blitz') return [BLITZ_STREAKS_KEY, PLAYER_NICKNAMES_KEY];
+  return [DAILY_STREAKS_KEY, BLITZ_STREAKS_KEY, PLAYER_NICKNAMES_KEY];
+}
+
+function getDateScopedKeys(mode, date) {
+  const keys = [];
+
+  if (mode === 'daily' || mode === 'both') {
+    const leaderboardKey = `${DAILY_LEADERBOARD_PREFIX}${date}`;
+    const commentsKey = `${DAILY_COMMENTS_PREFIX}${date}`;
+    keys.push(
+      leaderboardKey,
+      `${leaderboardKey}:states`,
+      `${leaderboardKey}:word-avg-score`,
+      `${leaderboardKey}:word-avg-score:players`,
+      `${DAILY_PUZZLE_PREFIX}${date}`,
+      commentsKey,
+      `${commentsKey}:players`
+    );
+  }
+
+  if (mode === 'blitz' || mode === 'both') {
+    const leaderboardKey = `${BLITZ_LEADERBOARD_PREFIX}${date}`;
+    const commentsKey = `${BLITZ_COMMENTS_PREFIX}${date}`;
+    keys.push(
+      leaderboardKey,
+      `${leaderboardKey}:states`,
+      `${leaderboardKey}:word-avg-score`,
+      `${leaderboardKey}:word-avg-score:players`,
+      `${BLITZ_PUZZLE_PREFIX}${date}`,
+      commentsKey,
+      `${commentsKey}:players`
+    );
+  }
+
+  return keys;
 }
 
 async function deleteKeys(redisClient, keys) {
@@ -80,30 +138,26 @@ async function run() {
   await redisClient.connect();
 
   let totalDeleted = 0;
-  const prefixes = getPrefixes(mode);
+  const prefixes = getScanPrefixes(mode);
+  const globalKeys = getGlobalKeys(mode);
 
   if (all) {
     for (const prefix of prefixes) {
       totalDeleted += await deleteByScan(redisClient, prefix);
     }
+    totalDeleted += await deleteKeys(redisClient, globalKeys);
   } else {
-    const keys = [];
-    for (const prefix of prefixes) {
-      const baseKey = `${prefix}${date}`;
-      keys.push(
-        baseKey,
-        `${baseKey}:states`,
-        `${baseKey}:word-avg-score`,
-        `${baseKey}:word-avg-score:players`
-      );
-    }
+    const keys = [
+      ...getDateScopedKeys(mode, date),
+      ...globalKeys
+    ];
     totalDeleted = await deleteKeys(redisClient, keys);
   }
 
   await redisClient.quit();
 
   const scope = all ? 'all dates' : `date ${date}`;
-  console.log(`Deleted ${totalDeleted} Redis key(s) for ${mode} leaderboard(s), ${scope}.`);
+  console.log(`Deleted ${totalDeleted} Redis key(s) for ${mode} game data, ${scope}. Dictionary keys were preserved.`);
 }
 
 run().catch((err) => {

@@ -27,8 +27,11 @@ import ScoreTracker from "@/components/board/ScoreTracker";
 import NicknamePrompt from "@/components/NicknamePrompt";
 import {
   PLAYER_ID_KEY,
+  hasDismissedNicknamePrompt,
   getStoredNickname,
-  setStoredNickname
+  setStoredNickname,
+  getNicknameBadgeStyle,
+  getPlayerHash
 } from "@/lib/nickname";
 import { updateStreakOnPuzzleComplete } from "@/lib/streaks";
 
@@ -60,6 +63,7 @@ const SHARE_MODE_KEY = 'scraple_share_mode';
 const SHARE_NEW_BADGE_EXPIRES_ON = '2026-02-14';
 
 const BLITZ_DURATION_SECONDS = 60;
+const COMMENT_MAX_LENGTH = 250;
 
 // Current data version - increment this when making breaking changes to the data structure
 const CURRENT_DATA_VERSION = '1.0.0';
@@ -183,6 +187,13 @@ export default function Home() {
   const [blitzCompleted, setBlitzCompleted] = useState(false);
   const [wordBreakdown, setWordBreakdown] = useState([]);
   const [hasRequestedWordBreakdown, setHasRequestedWordBreakdown] = useState(false);
+  const [comments, setComments] = useState([]);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [isFetchingComments, setIsFetchingComments] = useState(false);
+  const [hasRequestedComments, setHasRequestedComments] = useState(false);
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [commentError, setCommentError] = useState('');
+  const [commentInfo, setCommentInfo] = useState('');
   const [playerNickname, setPlayerNickname] = useState('');
   const [showNicknamePrompt, setShowNicknamePrompt] = useState(false);
 
@@ -238,8 +249,18 @@ export default function Home() {
       leaderboardSubmit: isBlitz ? '/api/blitz/leaderboard/submit' : '/api/leaderboard/submit',
       leaderboardQuery: isBlitz ? '/api/blitz/leaderboard' : '/api/leaderboard',
       leaderboardTotal: isBlitz ? '/api/blitz/leaderboard/total' : '/api/leaderboard/total',
-      wordBreakdownEndpoint: isBlitz ? '/api/blitz/leaderboard/word-breakdown' : '/api/leaderboard/word-breakdown'
+      wordBreakdownEndpoint: isBlitz ? '/api/blitz/leaderboard/word-breakdown' : '/api/leaderboard/word-breakdown',
+      commentsSubmit: isBlitz ? '/api/blitz/leaderboard/comments' : '/api/leaderboard/comments',
+      commentsQuery: isBlitz ? '/api/blitz/leaderboard/comments' : '/api/leaderboard/comments'
     };
+  };
+
+  const resetCommentsState = () => {
+    setComments([]);
+    setHasRequestedComments(false);
+    setCommentDraft('');
+    setCommentError('');
+    setCommentInfo('');
   };
   
   // Fetch puzzle from the server based on mode
@@ -300,6 +321,7 @@ export default function Home() {
             setGameResults(null);
             setWordBreakdown([]);
             setHasRequestedWordBreakdown(false);
+            resetCommentsState();
             
             // Save the new state with the server's date
             const newGameState = {
@@ -374,6 +396,7 @@ export default function Home() {
           setGameResults(null);
           setWordBreakdown([]);
           setHasRequestedWordBreakdown(false);
+          resetCommentsState();
           
           // Save the new state with the server's date
           const newGameState = {
@@ -402,7 +425,11 @@ export default function Home() {
           setUsedTileIds([]);
           setIsGameFinished(false);
           setGameResults(null);
-          
+          setLeaderboardInfo(null);
+          setWordBreakdown([]);
+          setHasRequestedWordBreakdown(false);
+          resetCommentsState();
+
           // Clear results from localStorage
           localStorage.removeItem(GAME_RESULTS_KEY);
           
@@ -432,6 +459,7 @@ export default function Home() {
           setUsedTileIds(parsedState.usedTileIds || []);
           setWordBreakdown([]);
           setHasRequestedWordBreakdown(false);
+          resetCommentsState();
           
           // Explicitly check for isGameFinished
           const gameFinished = parsedState.isGameFinished === true;
@@ -502,6 +530,9 @@ export default function Home() {
           setBonusTilePositions(parsedState.bonusTilePositions || {});
           setDisplayDate(parsedState.displayDate || '');
           setPuzzleId(parsedState.puzzleId || savedPuzzleId || null);
+          setWordBreakdown([]);
+          setHasRequestedWordBreakdown(false);
+          resetCommentsState();
 
           if (savedResults) {
             setGameResults(JSON.parse(savedResults));
@@ -590,6 +621,7 @@ export default function Home() {
           setLeaderboardInfo(null);
           setWordBreakdown([]);
           setHasRequestedWordBreakdown(false);
+          resetCommentsState();
           setPuzzleId(blitzPuzzle.puzzleId || null);
           setBlitzTimeLeft(canRestoreCompleted ? 0 : BLITZ_DURATION_SECONDS);
           blitzAutoSubmitRef.current = canRestoreCompleted;
@@ -655,6 +687,7 @@ export default function Home() {
       setLeaderboardInfo(null);
       setWordBreakdown([]);
       setHasRequestedWordBreakdown(false);
+      resetCommentsState();
       
       // Clear results from localStorage
       if (typeof window !== 'undefined') {
@@ -692,6 +725,7 @@ export default function Home() {
       setLeaderboardInfo(null);
       setWordBreakdown([]);
       setHasRequestedWordBreakdown(false);
+      resetCommentsState();
       setValidationError('');
       setInvalidPlacement(false);
       await loadGameState(mode, { forceNewPuzzle });
@@ -1159,6 +1193,149 @@ export default function Home() {
       setIsFetchingWordBreakdown(false);
     }
   };
+
+  const parseCommentIdentity = (usernameValue) => {
+    const username = String(usernameValue || '').trim();
+    if (!username) {
+      return { nickname: '', hash: '000000' };
+    }
+
+    const splitAt = username.lastIndexOf('#');
+    if (splitAt > 0) {
+      const nickname = username.slice(0, splitAt).trim();
+      const hash = username.slice(splitAt + 1).trim().toUpperCase();
+      return { nickname, hash: hash || '000000' };
+    }
+
+    return {
+      nickname: '',
+      hash: username.toUpperCase() || '000000'
+    };
+  };
+
+  const parseComments = (rawComments) => {
+    if (!Array.isArray(rawComments)) return [];
+
+    return rawComments
+      .map((rawComment) => {
+        if (typeof rawComment !== 'string') return null;
+        try {
+          const parsed = JSON.parse(rawComment);
+          const parsedIdentity = parseCommentIdentity(parsed?.username);
+          const commentText = String(parsed?.comment || '').trim();
+          if (!commentText) return null;
+
+          return {
+            username: String(parsed?.username || '').trim(),
+            comment: commentText,
+            timestamp: String(parsed?.timestamp || ''),
+            nickname: parsedIdentity.nickname,
+            hash: parsedIdentity.hash
+          };
+        } catch (error) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  };
+
+  const fetchComments = async (
+    mode = gameMode,
+    { finished = isGameFinished, results = gameResults } = {}
+  ) => {
+    if (!playerId || !finished || !results) return;
+
+    setIsFetchingComments(true);
+    setHasRequestedComments(true);
+    setCommentError('');
+    setCommentInfo('');
+
+    try {
+      const { commentsQuery } = getModeEndpoints(mode);
+      const params = new URLSearchParams({ playerId });
+      const response = await fetch(`${commentsQuery}?${params.toString()}`);
+
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 403) {
+          setComments([]);
+          return;
+        }
+        throw new Error(`Failed to fetch comments: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setComments(parseComments(data.comments));
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+      setComments([]);
+      setCommentError('Failed to load comments.');
+    } finally {
+      setIsFetchingComments(false);
+    }
+  };
+
+  const submitComment = async () => {
+    if (!playerId || !isGameFinished || !gameResults) return;
+    if (isSubmittingComment) return;
+
+    const trimmed = commentDraft.trim();
+    if (!trimmed) {
+      setCommentError('Enter a comment first.');
+      return;
+    }
+    if (trimmed.length > COMMENT_MAX_LENGTH) {
+      setCommentError(`Comment must be ${COMMENT_MAX_LENGTH} characters or fewer.`);
+      return;
+    }
+
+    setIsSubmittingComment(true);
+    setCommentError('');
+    setCommentInfo('');
+
+    try {
+      const { commentsSubmit } = getModeEndpoints(gameMode);
+      const { dateKey } = getModeStorage(gameMode);
+      const currentDate = localStorage.getItem(dateKey) || getFormattedDate();
+      const commentGameState = {
+        placedTiles,
+        bonusTilePositions,
+        date: currentDate,
+        puzzleId: gameMode === 'blitz' ? puzzleId : undefined
+      };
+      const response = await fetch(commentsSubmit, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          playerId,
+          comment: trimmed,
+          gameState: commentGameState
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 409) {
+          setCommentInfo('You already left a comment for this puzzle today.');
+          setCommentDraft('');
+          await fetchComments(gameMode);
+          return;
+        }
+        setCommentError(data?.error || 'Failed to submit comment.');
+        return;
+      }
+
+      setCommentDraft('');
+      setCommentInfo('Comment posted.');
+      await fetchComments(gameMode);
+    } catch (error) {
+      console.error('Error submitting comment:', error);
+      setCommentError('Failed to submit comment.');
+    } finally {
+      setIsSubmittingComment(false);
+    }
+  };
   
   const finalizeGame = async ({ skipValidation = false } = {}) => {
     if (!skipValidation) {
@@ -1198,6 +1375,7 @@ export default function Home() {
       // Submit score to leaderboard
       const submitResult = await submitScoreToLeaderboard(results, gameMode, streakCount);
       await fetchWordBreakdown(gameMode, { finished: true, results });
+      await fetchComments(gameMode, { finished: true, results });
       if (typeof window !== 'undefined') {
         localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode);
       }
@@ -1232,7 +1410,7 @@ export default function Home() {
         }
       }
 
-      if (!getStoredNickname()) {
+      if (!getStoredNickname() && !hasDismissedNicknamePrompt()) {
         setShowNicknamePrompt(true);
       }
     } catch (error) {
@@ -1426,6 +1604,13 @@ export default function Home() {
     if (hasRequestedWordBreakdown || wordBreakdown.length > 0) return;
     fetchWordBreakdown(gameMode);
   }, [isGameFinished, gameResults, playerId, gameMode, puzzleId, wordBreakdown.length, isFetchingWordBreakdown, hasRequestedWordBreakdown]);
+
+  useEffect(() => {
+    if (!isGameFinished || !gameResults || !playerId) return;
+    if (isFetchingComments) return;
+    if (hasRequestedComments || comments.length > 0) return;
+    fetchComments(gameMode);
+  }, [isGameFinished, gameResults, playerId, gameMode, comments.length, isFetchingComments, hasRequestedComments]);
   
   // Add a new useEffect to show the help popup on first visit
   useEffect(() => {
@@ -1490,6 +1675,11 @@ export default function Home() {
   }));
   const displayedWordBreakdown = wordBreakdown.length > 0 ? wordBreakdown : fallbackWordBreakdown;
   const hasSubmittedWords = Array.isArray(gameResults?.words) && gameResults.words.length > 0;
+  const currentPlayerHash = playerId ? getPlayerHash(playerId) : null;
+  const hasPlayerComment = currentPlayerHash
+    ? comments.some((entry) => entry.hash === currentPlayerHash)
+    : false;
+  const commentProgressPercent = Math.min(100, Math.max(0, (commentDraft.length / COMMENT_MAX_LENGTH) * 100));
   
   if (isLoading) {
     return (
@@ -1816,6 +2006,80 @@ export default function Home() {
                           {wordResult.isUniqueTodaySpecial && <span className={`${styles.specialTag} ${styles.specialTagUnique}`}>UNIQUE TODAY</span>}
                         </div>
                       )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className={styles.commentsContainer}>
+                <h3>Leave a comment</h3>
+                <textarea
+                  className={styles.commentTextarea}
+                  value={commentDraft}
+                  onChange={(event) => {
+                    const nextValue = event.target.value.slice(0, COMMENT_MAX_LENGTH);
+                    setCommentDraft(nextValue);
+                    if (commentError) {
+                      setCommentError('');
+                    }
+                    if (commentInfo) {
+                      setCommentInfo('');
+                    }
+                  }}
+                  placeholder="Share your thoughts on today's puzzle..."
+                  maxLength={COMMENT_MAX_LENGTH}
+                  disabled={isSubmittingComment || hasPlayerComment}
+                />
+                <div className={styles.commentFooter}>
+                  <div className={styles.commentCounter}>
+                    <span
+                      className={styles.commentCounterProgress}
+                      style={{
+                        background: `conic-gradient(#4b79ff ${commentProgressPercent}%, rgba(75, 121, 255, 0.2) ${commentProgressPercent}% 100%)`
+                      }}
+                    ></span>
+                    {commentDraft.length}/{COMMENT_MAX_LENGTH}
+                  </div>
+                  <button
+                    className={styles.commentSubmitButton}
+                    onClick={submitComment}
+                    disabled={isSubmittingComment || hasPlayerComment || commentDraft.trim().length === 0}
+                  >
+                    {isSubmittingComment ? 'Posting...' : 'Post comment'}
+                  </button>
+                </div>
+                {commentError && <div className={styles.commentError}>{commentError}</div>}
+                {commentInfo && <div className={styles.commentInfo}>{commentInfo}</div>}
+                {hasPlayerComment && (
+                  <div className={styles.commentInfoRight}>You already left a comment for this puzzle today.</div>
+                )}
+
+                <h4 className={styles.commentsListTitle}>Comments</h4>
+                {isFetchingComments && (
+                  <div className={styles.commentsLoading}>Loading comments...</div>
+                )}
+                {!isFetchingComments && comments.length === 0 && (
+                  <div className={styles.commentsLoading}>No comments yet.</div>
+                )}
+                <ul className={styles.commentsList}>
+                  {comments.map((entry, index) => (
+                    <li key={`${entry.username}-${entry.timestamp}-${index}`} className={styles.commentItem}>
+                      <div className={styles.commentIdentity}>
+                        {entry.nickname ? (
+                          <>
+                            <span
+                              className={styles.commentNicknameBadge}
+                              style={getNicknameBadgeStyle(entry.hash)}
+                            >
+                              {entry.nickname}
+                            </span>
+                            <span className={styles.commentHashTag}>#{entry.hash}</span>
+                          </>
+                        ) : (
+                          <span className={styles.commentHashTag}>#{entry.hash}</span>
+                        )}
+                      </div>
+                      <div className={styles.commentText}>{entry.comment}</div>
                     </li>
                   ))}
                 </ul>
