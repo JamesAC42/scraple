@@ -191,6 +191,7 @@ export default function Home() {
   const [commentDraft, setCommentDraft] = useState('');
   const [isFetchingComments, setIsFetchingComments] = useState(false);
   const [hasRequestedComments, setHasRequestedComments] = useState(false);
+  const [botGamePreview, setBotGamePreview] = useState(null);
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [commentError, setCommentError] = useState('');
   const [commentInfo, setCommentInfo] = useState('');
@@ -1274,6 +1275,32 @@ export default function Home() {
     }
   };
 
+  const fetchBotGamePreview = async () => {
+    if (typeof window === 'undefined') return;
+    if (isBlitzMode) return;
+    const puzzleDate = normalizeDateString(localStorage.getItem(GAME_DATE_KEY) || getFormattedDate());
+    if (!puzzleDate) {
+      setBotGamePreview(null);
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/bot-daily?date=${encodeURIComponent(puzzleDate)}`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          setBotGamePreview(null);
+          return;
+        }
+        throw new Error(`Failed to fetch bot game preview: ${response.status}`);
+      }
+      const data = await response.json();
+      setBotGamePreview(data);
+    } catch (error) {
+      console.error('Error fetching bot game preview:', error);
+      setBotGamePreview(null);
+    }
+  };
+
   const submitComment = async () => {
     if (!playerId || !isGameFinished || !gameResults) return;
     if (isSubmittingComment) return;
@@ -1611,6 +1638,14 @@ export default function Home() {
     if (hasRequestedComments || comments.length > 0) return;
     fetchComments(gameMode);
   }, [isGameFinished, gameResults, playerId, gameMode, comments.length, isFetchingComments, hasRequestedComments]);
+
+  useEffect(() => {
+    if (!isGameFinished || !gameResults || isBlitzMode) {
+      setBotGamePreview(null);
+      return;
+    }
+    fetchBotGamePreview();
+  }, [isGameFinished, gameResults, isBlitzMode]);
   
   // Add a new useEffect to show the help popup on first visit
   useEffect(() => {
@@ -1675,6 +1710,12 @@ export default function Home() {
   }));
   const displayedWordBreakdown = wordBreakdown.length > 0 ? wordBreakdown : fallbackWordBreakdown;
   const hasSubmittedWords = Array.isArray(gameResults?.words) && gameResults.words.length > 0;
+  const botScore = typeof botGamePreview?.score === 'number' ? botGamePreview.score : null;
+  const playerScore = typeof gameResults?.totalScore === 'number' ? gameResults.totalScore : null;
+  const hasBotScoreComparison = botScore !== null && playerScore !== null;
+  const didBeatBot = hasBotScoreComparison && playerScore > botScore;
+  const tiedBot = hasBotScoreComparison && playerScore === botScore;
+  const lostToBot = hasBotScoreComparison && playerScore < botScore;
   const currentPlayerHash = playerId ? getPlayerHash(playerId) : null;
   const hasPlayerComment = currentPlayerHash
     ? comments.some((entry) => entry.hash === currentPlayerHash)
@@ -1944,6 +1985,31 @@ export default function Home() {
                   {showShareNewBadge && <span className={styles.newBadge}>NEW!</span>}
                 </button>
               </div>
+
+              {!isBlitzMode && (
+                <div className={`${styles.botGameContainer} ${didBeatBot ? styles.botGameContainerWin : ''}`}>
+                  <div className={styles.botGameText}>
+                    <Image
+                      src="/images/robot.png"
+                      alt="ScrapleBot"
+                      width={18}
+                      height={18}
+                      className={styles.botGameIcon}
+                    />
+                    {lostToBot && `See how the ScrapleBot earned ${botScore} points`}
+                    {tiedBot && 'You tied with the ScrapleBot! See how it played.'}
+                    {didBeatBot && `🎉 You beat the ScrapleBot! It only earned ${botScore} points. View its game ✨`}
+                    {!hasBotScoreComparison && 'ScrapleBot is still solving. Check how it played soon.'}
+                  </div>
+                  <button
+                    className={styles.botGameButton}
+                    onClick={() => setActivePopup('botGame')}
+                    data-umami-event="Open bot game popup"
+                  >
+                    Show Bot Game
+                  </button>
+                </div>
+              )}
               
               <div className={styles.wordsContainer}>
                 <h3>Word Breakdown</h3>

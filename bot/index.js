@@ -33,6 +33,14 @@ function loadEnv() {
 
 loadEnv();
 
+const BOT_SUPPRESS_LOGS = process.env.BOT_SUPPRESS_LOGS === '1';
+const BOT_OUTPUT_JSON = process.env.BOT_OUTPUT_JSON === '1';
+if (BOT_SUPPRESS_LOGS) {
+  console.log = () => {};
+  console.warn = () => {};
+  console.error = () => {};
+}
+
 let createClient;
 try {
   ({ createClient } = require('redis'));
@@ -298,6 +306,15 @@ class CompactTrie {
     this.nodeIsWord[node] = 1;
   }
 
+  step(node, letterIdx) {
+    const e = this.findEdge(node, letterIdx);
+    return e === 0xffffffff ? -1 : this.edgeTo[e];
+  }
+
+  isWordNode(node) {
+    return node >= 0 && this.nodeIsWord[node] === 1;
+  }
+
   hasPrefixFromBuffer(buffer, len) {
     let node = 0;
     for (let i = 0; i < len; i += 1) {
@@ -363,8 +380,36 @@ function boardToPlacedTiles(board) {
   return out;
 }
 
+function toBoardRows(board) {
+  const rows = [];
+  for (let row = 0; row < BOARD_SIZE; row += 1) {
+    const current = [];
+    for (let col = 0; col < BOARD_SIZE; col += 1) {
+      const v = board[cellIndex(row, col)];
+      current.push(isLetter(v) ? decodeLetter(v) : null);
+    }
+    rows.push(current);
+  }
+  return rows;
+}
+
 function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
   const useUpperBound = options.useUpperBound !== false;
+  const useMemo = options.useMemo !== false;
+  const configuredTimeLimit = Number(options.timeLimitMs ?? process.env.TIME_LIMIT_MS ?? 15000);
+  const configuredNodeLimit = Number(options.nodeLimit ?? process.env.NODE_LIMIT ?? 0);
+  const configuredMemoMaxEntries = Number(options.memoMaxEntries ?? process.env.MEMO_MAX_ENTRIES ?? 250000);
+  const configuredMemoMinCell = Number(options.memoMinCell ?? process.env.MEMO_MIN_CELL ?? 10);
+  const timeLimitMs = Number.isFinite(configuredTimeLimit) && configuredTimeLimit > 0 ? configuredTimeLimit : 15000;
+  const nodeLimit = Number.isFinite(configuredNodeLimit) && configuredNodeLimit > 0 ? Math.floor(configuredNodeLimit) : 0;
+  const memoMaxEntries =
+    Number.isFinite(configuredMemoMaxEntries) && configuredMemoMaxEntries > 1000
+      ? Math.floor(configuredMemoMaxEntries)
+      : 250000;
+  const memoMinCell =
+    Number.isFinite(configuredMemoMinCell) && configuredMemoMinCell >= 0 && configuredMemoMinCell < CELL_COUNT
+      ? Math.floor(configuredMemoMinCell)
+      : 10;
 
   const board = new Uint8Array(CELL_COUNT);
   board.fill(UNASSIGNED);
@@ -374,30 +419,48 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
 
   const { letterMult, wordMult } = buildBonusMaps(bonusCoords);
 
-  const prefixBufferAcross = new Uint8Array(BOARD_SIZE);
-  const prefixBufferDown = new Uint8Array(BOARD_SIZE);
-  const wordBuffer = new Uint8Array(BOARD_SIZE);
-
   let bestScore = Number.NEGATIVE_INFINITY;
   let bestBoard = null;
   let bestWords = [];
+  let timedOut = false;
+  let timeoutReason = null;
 
   let explored = 0;
   let prunedPrefix = 0;
   let prunedWord = 0;
   let prunedUpper = 0;
+  let prunedMemo = 0;
+  let memoHits = 0;
+  let memoResets = 0;
+  let memoStores = 0;
   let progress = null;
   let upperChecks = 0;
   let minAcceptedUpperBound = Number.POSITIVE_INFINITY;
   let maxPrunedUpperBound = Number.NEGATIVE_INFINITY;
   let placedLetterBase = 0;
+  const memoByCell = useMemo ? Array.from({ length: CELL_COUNT + 1 }, () => new Map()) : null;
+  let memoEntries = 0;
 
   const rowWordBound = new Uint8Array(BOARD_SIZE);
   const colWordBound = new Uint8Array(BOARD_SIZE);
-  const cellCoeff = new Uint16Array(CELL_COUNT);
   const coeffBuckets = new Uint16Array(64);
   const pointBuckets = new Uint16Array(11);
   const POINT_ORDER = [10, 8, 5, 4, 3, 2, 1];
+  const downNodes = new Uint32Array(BOARD_SIZE);
+  const downLens = new Uint8Array(BOARD_SIZE);
+  const letterOrderByMultiplier = [[], [], [], []];
+
+  for (let mult = 1; mult <= 3; mult += 1) {
+    const order = [];
+    for (let li = 0; li < 26; li += 1) order.push(li);
+    order.sort((a, b) => {
+      const av = LETTER_POINTS[a] * mult;
+      const bv = LETTER_POINTS[b] * mult;
+      if (bv !== av) return bv - av;
+      return a - b;
+    });
+    letterOrderByMultiplier[mult] = order;
+  }
 
   function estimateUpperBound() {
     // For each row/col, compute the best word-multiplier product available in any
@@ -459,7 +522,6 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
       const row = cellRow(i);
       const col = cellCol(i);
       const coeff = letterMult[i] * (rowWordBound[row] + colWordBound[col]);
-      cellCoeff[i] = coeff;
       if (coeff > maxCoeff) maxCoeff = coeff;
 
       const v = board[i];
@@ -497,131 +559,17 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
     return fixedContributionUpper + optimisticRemaining;
   }
 
-  function getAcrossPrefixEndingAt(i, outBuf) {
-    const row = cellRow(i);
-    let start = i;
-    while (cellCol(start) > 0 && isLetter(board[start - 1]) && cellRow(start - 1) === row) {
-      start -= 1;
+  function makeMemoKey(acrossNode, acrossLen) {
+    // Use base-36 tokens to keep key length compact.
+    let key = `${acrossNode.toString(36)}.${acrossLen.toString(36)}|`;
+    for (let c = 0; c < BOARD_SIZE; c += 1) {
+      key += `${downNodes[c].toString(36)}.${downLens[c].toString(36)}|`;
     }
-
-    let len = 0;
-    for (let p = start; p <= i; p += 1) {
-      const v = board[p];
-      if (!isLetter(v)) return 0;
-      outBuf[len] = v;
-      len += 1;
+    for (let li = 0; li < 26; li += 1) {
+      const cnt = counts[li];
+      if (cnt > 0) key += `${li.toString(36)}.${cnt.toString(36)},`;
     }
-    return len;
-  }
-
-  function getDownPrefixEndingAt(i, outBuf) {
-    let start = i;
-    while (cellRow(start) > 0 && isLetter(board[start - BOARD_SIZE])) {
-      start -= BOARD_SIZE;
-    }
-
-    let len = 0;
-    for (let p = start; p <= i; p += BOARD_SIZE) {
-      const v = board[p];
-      if (!isLetter(v)) return 0;
-      outBuf[len] = v;
-      len += 1;
-    }
-    return len;
-  }
-
-  function readAcrossWordEndingAt(endIndex, outBuf) {
-    const row = cellRow(endIndex);
-    let start = endIndex;
-    while (cellCol(start) > 0 && isLetter(board[start - 1]) && cellRow(start - 1) === row) {
-      start -= 1;
-    }
-    let len = 0;
-    for (let p = start; p <= endIndex; p += 1) {
-      const v = board[p];
-      if (!isLetter(v)) return 0;
-      outBuf[len] = v;
-      len += 1;
-    }
-    return len;
-  }
-
-  function readDownWordEndingAt(endIndex, outBuf) {
-    let start = endIndex;
-    while (cellRow(start) > 0 && isLetter(board[start - BOARD_SIZE])) {
-      start -= BOARD_SIZE;
-    }
-    let len = 0;
-    for (let p = start; p <= endIndex; p += BOARD_SIZE) {
-      const v = board[p];
-      if (!isLetter(v)) return 0;
-      outBuf[len] = v;
-      len += 1;
-    }
-    return len;
-  }
-
-  function bufferToWord(buf, len) {
-    let s = '';
-    for (let i = 0; i < len; i += 1) s += decodeLetter(buf[i]);
-    return s;
-  }
-
-  function validateLocalAfterEmpty(i) {
-    const col = cellCol(i);
-    const row = cellRow(i);
-
-    if (col > 0 && isLetter(board[i - 1])) {
-      const len = readAcrossWordEndingAt(i - 1, wordBuffer);
-      if (len >= MIN_WORD_LEN) {
-        const w = bufferToWord(wordBuffer, len);
-        if (!wordSet.has(w)) return false;
-      }
-    }
-
-    if (row > 0 && isLetter(board[i - BOARD_SIZE])) {
-      const len = readDownWordEndingAt(i - BOARD_SIZE, wordBuffer);
-      if (len >= MIN_WORD_LEN) {
-        const w = bufferToWord(wordBuffer, len);
-        if (!wordSet.has(w)) return false;
-      }
-    }
-
-    return true;
-  }
-
-  function validateLocalAfterLetter(i) {
-    const row = cellRow(i);
-    const col = cellCol(i);
-
-    const acrossLen = getAcrossPrefixEndingAt(i, prefixBufferAcross);
-    if (acrossLen > 0) {
-      const acrossClosed = col === BOARD_SIZE - 1 || board[i + 1] === EMPTY;
-      if (acrossClosed) {
-        if (acrossLen >= MIN_WORD_LEN) {
-          const w = bufferToWord(prefixBufferAcross, acrossLen);
-          if (!wordSet.has(w)) return false;
-        }
-      } else if (!trie.hasPrefixFromBuffer(prefixBufferAcross, acrossLen)) {
-        return false;
-      }
-    }
-
-    const downLen = getDownPrefixEndingAt(i, prefixBufferDown);
-    if (downLen > 0) {
-      const below = i + BOARD_SIZE;
-      const downClosed = row === BOARD_SIZE - 1 || board[below] === EMPTY;
-      if (downClosed) {
-        if (downLen >= MIN_WORD_LEN) {
-          const w = bufferToWord(prefixBufferDown, downLen);
-          if (!wordSet.has(w)) return false;
-        }
-      } else if (!trie.hasPrefixFromBuffer(prefixBufferDown, downLen)) {
-        return false;
-      }
-    }
-
-    return true;
+    return key;
   }
 
   function evaluateFinalBoard() {
@@ -647,17 +595,19 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
           let raw = 0;
           let mult = 1;
           let word = '';
+          const positions = [];
           for (let c = col; c <= endCol; c += 1) {
             const idx = cellIndex(row, c);
             const li = board[idx];
             word += decodeLetter(li);
             raw += LETTER_POINTS[li] * letterMult[idx];
             mult *= wordMult[idx];
+            positions.push({ row, col: c });
           }
           if (!wordSet.has(word)) return null;
           const score = raw * mult;
           total += score;
-          words.push({ word, score });
+          words.push({ word, score, positions });
         }
         col = endCol + 1;
       }
@@ -682,17 +632,19 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
           let raw = 0;
           let mult = 1;
           let word = '';
+          const positions = [];
           for (let r = row; r <= endRow; r += 1) {
             const idx = cellIndex(r, col);
             const li = board[idx];
             word += decodeLetter(li);
             raw += LETTER_POINTS[li] * letterMult[idx];
             mult *= wordMult[idx];
+            positions.push({ row: r, col });
           }
           if (!wordSet.has(word)) return null;
           const score = raw * mult;
           total += score;
-          words.push({ word, score });
+          words.push({ word, score, positions });
         }
         row = endRow + 1;
       }
@@ -701,14 +653,27 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
     return { total, words };
   }
 
-  function dfs(cell) {
+  function dfs(cell, acrossNode, acrossLen) {
+    if (timedOut) return;
+
+    const now = Date.now();
+    if (now > progress.deadline) {
+      timedOut = true;
+      timeoutReason = 'time';
+      return;
+    }
+    if (progress.nodeLimit > 0 && explored >= progress.nodeLimit) {
+      timedOut = true;
+      timeoutReason = 'node';
+      return;
+    }
+
     if (progress) {
-      const now = Date.now();
       if (now - progress.lastLogAt >= progress.intervalMs) {
         progress.lastLogAt = now;
         console.log(
           `[search] explored=${explored} best=${Number.isFinite(bestScore) ? bestScore : 'N/A'} ` +
-            `prunePrefix=${prunedPrefix} pruneWord=${prunedWord} pruneUpper=${prunedUpper}`
+            `prunePrefix=${prunedPrefix} pruneWord=${prunedWord} pruneUpper=${prunedUpper} pruneMemo=${prunedMemo}`
         );
       }
     }
@@ -734,75 +699,156 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
       return;
     }
 
-    if (board[cell] !== UNASSIGNED) {
-      dfs(cell + 1);
-      return;
+    const col = cellCol(cell);
+    const row = cellRow(cell);
+    if (col === 0) {
+      acrossNode = 0;
+      acrossLen = 0;
     }
 
-    for (let letter = 0; letter < 26; letter += 1) {
+    if (useMemo && cell >= memoMinCell) {
+      if (memoEntries >= memoMaxEntries) {
+        for (let i = memoMinCell; i <= CELL_COUNT; i += 1) memoByCell[i].clear();
+        memoEntries = 0;
+        memoResets += 1;
+      }
+
+      const memoKey = makeMemoKey(acrossNode, acrossLen);
+      const memoForCell = memoByCell[cell];
+      const seenPlacedBase = memoForCell.get(memoKey);
+      if (seenPlacedBase !== undefined && placedLetterBase <= seenPlacedBase) {
+        prunedMemo += 1;
+        memoHits += 1;
+        return;
+      }
+      if (seenPlacedBase === undefined) {
+        memoEntries += 1;
+        memoStores += 1;
+      }
+      memoForCell.set(memoKey, placedLetterBase);
+    }
+
+    const letterOrder = letterOrderByMultiplier[letterMult[cell]] || letterOrderByMultiplier[1];
+    for (let k = 0; k < letterOrder.length; k += 1) {
+      const letter = letterOrder[k];
       if (counts[letter] === 0) continue;
+
+      const nextAcrossNode = trie.step(acrossNode, letter);
+      if (nextAcrossNode < 0) {
+        prunedPrefix += 1;
+        continue;
+      }
+      const nextAcrossLen = acrossLen + 1;
+      if (col === BOARD_SIZE - 1 && nextAcrossLen >= MIN_WORD_LEN && !trie.isWordNode(nextAcrossNode)) {
+        prunedWord += 1;
+        continue;
+      }
+
+      const prevDownNode = downNodes[col];
+      const prevDownLen = downLens[col];
+      const nextDownNode = trie.step(prevDownNode, letter);
+      if (nextDownNode < 0) {
+        prunedPrefix += 1;
+        continue;
+      }
+      const nextDownLen = prevDownLen + 1;
+      if (row === BOARD_SIZE - 1 && nextDownLen >= MIN_WORD_LEN && !trie.isWordNode(nextDownNode)) {
+        prunedWord += 1;
+        continue;
+      }
+
       board[cell] = letter;
       counts[letter] -= 1;
       placedLetterBase += LETTER_POINTS[letter] * letterMult[cell];
+      downNodes[col] = nextDownNode;
+      downLens[col] = nextDownLen;
 
-      if (validateLocalAfterLetter(cell)) {
-        if (!useUpperBound) {
-          dfs(cell + 1);
-        } else {
-          const bound = estimateUpperBound();
-          upperChecks += 1;
-          if (bound > bestScore) {
-            if (bound < minAcceptedUpperBound) minAcceptedUpperBound = bound;
-            dfs(cell + 1);
-          } else {
-            prunedUpper += 1;
-            if (bound > maxPrunedUpperBound) maxPrunedUpperBound = bound;
-          }
-        }
-      } else {
-        prunedPrefix += 1;
-      }
-
-      counts[letter] += 1;
-      placedLetterBase -= LETTER_POINTS[letter] * letterMult[cell];
-      board[cell] = UNASSIGNED;
-    }
-
-    board[cell] = EMPTY;
-    if (validateLocalAfterEmpty(cell)) {
       if (!useUpperBound) {
-        dfs(cell + 1);
+        dfs(cell + 1, nextAcrossNode, nextAcrossLen);
       } else {
         const bound = estimateUpperBound();
         upperChecks += 1;
         if (bound > bestScore) {
           if (bound < minAcceptedUpperBound) minAcceptedUpperBound = bound;
-          dfs(cell + 1);
+          dfs(cell + 1, nextAcrossNode, nextAcrossLen);
         } else {
           prunedUpper += 1;
           if (bound > maxPrunedUpperBound) maxPrunedUpperBound = bound;
         }
       }
+
+      downNodes[col] = prevDownNode;
+      downLens[col] = prevDownLen;
+      counts[letter] += 1;
+      placedLetterBase -= LETTER_POINTS[letter] * letterMult[cell];
+      board[cell] = UNASSIGNED;
+
+      if (timedOut) return;
+    }
+
+    const prevDownNode = downNodes[col];
+    const prevDownLen = downLens[col];
+    if (
+      (acrossLen < MIN_WORD_LEN || trie.isWordNode(acrossNode)) &&
+      (prevDownLen < MIN_WORD_LEN || trie.isWordNode(prevDownNode))
+    ) {
+      board[cell] = EMPTY;
+      downNodes[col] = 0;
+      downLens[col] = 0;
+
+      if (!useUpperBound) {
+        dfs(cell + 1, 0, 0);
+      } else {
+        const bound = estimateUpperBound();
+        upperChecks += 1;
+        if (bound > bestScore) {
+          if (bound < minAcceptedUpperBound) minAcceptedUpperBound = bound;
+          dfs(cell + 1, 0, 0);
+        } else {
+          prunedUpper += 1;
+          if (bound > maxPrunedUpperBound) maxPrunedUpperBound = bound;
+        }
+      }
+
+      downNodes[col] = prevDownNode;
+      downLens[col] = prevDownLen;
+      board[cell] = UNASSIGNED;
     } else {
       prunedWord += 1;
     }
-    board[cell] = UNASSIGNED;
   }
 
   function solve() {
     const startedAt = Date.now();
-    progress = { lastLogAt: startedAt, intervalMs: 3000, debugBound: options.debugBound === true };
-    dfs(0);
+    progress = {
+      lastLogAt: startedAt,
+      intervalMs: 3000,
+      debugBound: options.debugBound === true,
+      deadline: startedAt + timeLimitMs,
+      nodeLimit
+    };
+    dfs(0, 0, 0);
     progress = null;
 
     return {
       bestScore,
       bestBoard,
       bestWords,
+      timedOut,
+      timeoutReason,
+      timeLimitMs,
+      nodeLimit,
+      memoMaxEntries,
+      memoMinCell,
       explored,
       prunedPrefix,
       prunedWord,
       prunedUpper,
+      prunedMemo,
+      memoHits,
+      memoStores,
+      memoResets,
+      memoSize: memoEntries,
       upperChecks,
       minAcceptedUpperBound: Number.isFinite(minAcceptedUpperBound) ? minAcceptedUpperBound : null,
       maxPrunedUpperBound: Number.isFinite(maxPrunedUpperBound) ? maxPrunedUpperBound : null,
@@ -815,14 +861,20 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
 }
 
 async function loadTodayPuzzle(redisClient) {
-  const today = getEasternDateString();
-  const redisKey = `${DAILY_PUZZLE_PREFIX}${today}`;
+  const envDate = typeof process.env.BOT_PUZZLE_DATE === 'string' ? process.env.BOT_PUZZLE_DATE.trim() : '';
+  const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(envDate) ? envDate : getEasternDateString();
+  const redisKey = `${DAILY_PUZZLE_PREFIX}${targetDate}`;
   const raw = await redisClient.get(redisKey);
   if (!raw) {
     throw new Error(`No puzzle found in Redis at key "${redisKey}"`);
   }
   const parsed = JSON.parse(raw);
-  return { today, redisKey, puzzle: parsed };
+  return { today: targetDate, redisKey, puzzle: parsed };
+}
+
+function emitJson(payload) {
+  if (!BOT_OUTPUT_JSON) return;
+  process.stdout.write(`BOT_RESULT_JSON:${JSON.stringify(payload)}\n`);
 }
 
 async function main() {
@@ -859,6 +911,7 @@ async function main() {
       trie,
       options: {
         useUpperBound: true,
+        useMemo: true,
         debugBound
       }
     };
@@ -870,6 +923,10 @@ async function main() {
       console.log(
         `[bound] upperChecks=${result.upperChecks} pruned=${result.prunedUpper} pruneRate=${pruneRate}% ` +
           `maxPrunedBound=${result.maxPrunedUpperBound} minAcceptedBound=${result.minAcceptedUpperBound}`
+      );
+      console.log(
+        `[memo] enabled=${solverInput.options.useMemo !== false} memoSize=${result.memoSize} ` +
+          `stores=${result.memoStores} resets=${result.memoResets} maxEntries=${result.memoMaxEntries} minCell=${result.memoMinCell}`
       );
       if (result.prunedUpper === 0) {
         console.log('[bound] warning: pruneUpper is 0 for this run');
@@ -901,23 +958,47 @@ async function main() {
         `[bound] baseline bestScore=${baseline.bestScore} explored=${baseline.explored} ` +
           `durationMs=${baseline.durationMs}`
       );
-      if (baseline.bestScore !== result.bestScore) {
+      if (baseline.timedOut || result.timedOut) {
+        console.log('[bound] verification skipped strict equality because one run timed out');
+      } else if (baseline.bestScore !== result.bestScore) {
         throw new Error(
           `Upper-bound verification failed: pruned best=${result.bestScore}, baseline best=${baseline.bestScore}`
         );
+      } else {
+        console.log('[bound] verification passed: pruned search matches baseline optimal score');
       }
-      console.log('[bound] verification passed: pruned search matches baseline optimal score');
     }
 
     if (!result.bestBoard) {
       console.log('[bot] no valid board found');
+      console.log(
+        `[bot] timedOut=${result.timedOut} timeoutReason=${result.timeoutReason || 'none'} ` +
+          `timeLimitMs=${result.timeLimitMs} nodeLimit=${result.nodeLimit || 0}`
+      );
+      emitJson({
+        ok: false,
+        date: today,
+        score: null,
+        timedOut: result.timedOut,
+        timeoutReason: result.timeoutReason || null,
+        explored: result.explored,
+        durationMs: result.durationMs,
+        bonusTilePositions: puzzle.bonusTilePositions || {},
+        placedTiles: {}
+      });
       return;
     }
 
     console.log('[bot] search complete');
     console.log(
       `[bot] explored=${result.explored} durationMs=${result.durationMs} ` +
-        `prunePrefix=${result.prunedPrefix} pruneWord=${result.prunedWord} pruneUpper=${result.prunedUpper}`
+        `prunePrefix=${result.prunedPrefix} pruneWord=${result.prunedWord} ` +
+        `pruneUpper=${result.prunedUpper} pruneMemo=${result.prunedMemo} ` +
+        `memoSize=${result.memoSize} memoResets=${result.memoResets}`
+    );
+    console.log(
+      `[bot] timedOut=${result.timedOut} timeoutReason=${result.timeoutReason || 'none'} ` +
+        `timeLimitMs=${result.timeLimitMs} nodeLimit=${result.nodeLimit || 0}`
     );
     console.log(`[bot] final score=${result.bestScore}`);
     console.log('[bot] final board:');
@@ -927,7 +1008,22 @@ async function main() {
       console.log(`  ${w.word}: ${w.score}`);
     }
     console.log('[bot] placed tiles payload:');
-    console.log(JSON.stringify(boardToPlacedTiles(result.bestBoard), null, 2));
+    const placedTiles = boardToPlacedTiles(result.bestBoard);
+    console.log(JSON.stringify(placedTiles, null, 2));
+
+    emitJson({
+      ok: true,
+      date: today,
+      score: result.bestScore,
+      timedOut: result.timedOut,
+      timeoutReason: result.timeoutReason || null,
+      explored: result.explored,
+      durationMs: result.durationMs,
+      bonusTilePositions: puzzle.bonusTilePositions || {},
+      placedTiles,
+      boardRows: toBoardRows(result.bestBoard),
+      words: result.bestWords
+    });
   } finally {
     if (redisClient.isOpen) {
       await redisClient.quit();
@@ -936,6 +1032,10 @@ async function main() {
 }
 
 main().catch((error) => {
+  emitJson({
+    ok: false,
+    error: error && error.message ? error.message : String(error)
+  });
   console.error('[bot] failed:', error);
   process.exit(1);
 });

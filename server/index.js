@@ -6,6 +6,8 @@ const app = express();
 const {createClient} = require('redis');
 const { getDailyPuzzle } = require('./controllers/getDailyPuzzle');
 const { getBlitzPuzzle } = require('./controllers/getBlitzPuzzle');
+const { getBotDailyGame } = require('./controllers/getBotDailyGame');
+const { getBotDailyWordBreakdown } = require('./controllers/getBotDailyWordBreakdown');
 const { shareImage } = require('./controllers/shareImage');
 const { 
   submitScore, 
@@ -60,6 +62,8 @@ app.set('redisClient', redisClient);
 // API routes
 app.get('/api/daily-puzzle', getDailyPuzzle);
 app.get('/api/blitz-puzzle', getBlitzPuzzle);
+app.get('/api/bot-daily', getBotDailyGame);
+app.get('/api/bot-daily-word-breakdown', getBotDailyWordBreakdown);
 app.post('/api/share-image', shareImage);
 app.post('/api/leaderboard/submit', submitScore);
 app.get('/api/leaderboard', getLeaderboard);

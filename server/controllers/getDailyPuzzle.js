@@ -1,4 +1,5 @@
 const { getEasternDateString, getEasternDisplayDate, getOrCreateDailyPuzzle } = require('../lib/dailyPuzzle');
+const { triggerDailyBotSolveIfMissing } = require('../lib/botDailyWorker');
 
 // Redis key for storing the daily puzzle
 const REDIS_KEY_PREFIX = 'scraple:daily:';
@@ -12,6 +13,12 @@ const getDailyPuzzle = async (req, res) => {
     const puzzle = await getOrCreateDailyPuzzle(redisClient, today, {
       redisKeyPrefix: REDIS_KEY_PREFIX,
       displayDate: getEasternDisplayDate()
+    });
+
+    // Kick off bot solve once for today's puzzle in the background.
+    // Locking and key checks inside the helper prevent duplicate runs.
+    triggerDailyBotSolveIfMissing(redisClient, today).catch((err) => {
+      console.error('Failed triggering daily bot worker:', err);
     });
 
     res.status(200).json(puzzle);

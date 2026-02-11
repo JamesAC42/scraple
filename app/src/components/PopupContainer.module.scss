@@ -95,6 +95,18 @@
             }
         }
 
+        .titleWithIcon {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .titleIcon {
+            width: 1.5rem;
+            height: 1.5rem;
+            object-fit: contain;
+        }
+
         @media (max-width: 700px) {
             padding:0.5rem;
             h2 {

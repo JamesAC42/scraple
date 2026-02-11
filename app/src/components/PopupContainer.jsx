@@ -8,6 +8,7 @@ import HelpPopup from "./popups/HelpPopup";
 import LeaderboardPopup from "./popups/LeaderboardPopup";
 import SharePopup from "./popups/SharePopup";
 import ProfilePopup from "./popups/ProfilePopup";
+import BotGamePopup from "./popups/BotGamePopup";
 
 import { IoMdClose } from "react-icons/io";
 
@@ -31,6 +32,13 @@ const PopupContainer = () => {
                 return "Share your board";
             case 'profile':
                 return "Profile";
+            case 'botGame':
+                return (
+                    <span className={styles.titleWithIcon}>
+                        <img src="/images/robot.png" alt="ScrapleBot" className={styles.titleIcon} />
+                        ScrapleBot&apos;s Board
+                    </span>
+                );
             default:
                 return "";
         }
@@ -48,6 +56,8 @@ const PopupContainer = () => {
                 return <SharePopup onClose={handleClosePopup}/>;
             case 'profile':
                 return <ProfilePopup onClose={handleClosePopup}/>;
+            case 'botGame':
+                return <BotGamePopup onClose={handleClosePopup}/>;
             default:
                 return null;
         }

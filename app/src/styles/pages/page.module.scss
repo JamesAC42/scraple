@@ -462,6 +462,55 @@
             }
         }
     }
+
+    .botGameContainer {
+        margin-bottom: 1.5rem;
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        background: var(--surface);
+        padding: 0.85rem 1rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.55rem;
+        text-align: center;
+    }
+
+    .botGameContainerWin {
+        border-color: #ffb300;
+        background: linear-gradient(135deg, #fff7d6, #ffe8a3);
+        box-shadow: 0 0.35rem 1rem rgba(255, 170, 0, 0.22);
+    }
+
+    .botGameText {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.45rem;
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .botGameIcon {
+        flex: 0 0 auto;
+    }
+
+    .botGameButton {
+        border: 1px solid #4b79ff;
+        background: #edf3ff;
+        color: #1b3f9a;
+        border-radius: 0.45rem;
+        padding: 0.5rem 0.85rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+        &:hover {
+            transform: translateY(-0.08rem);
+            box-shadow: 0 0.2rem 0.6rem rgba(28, 63, 154, 0.18);
+        }
+    }
     
     .wordsContainer {
         h3 {
@@ -914,6 +963,20 @@
                     padding: 0.1rem 0.45rem;
                 }
             }
+        }
+
+        .botGameContainer {
+            margin-bottom: 1rem;
+            padding: 0.7rem 0.75rem;
+        }
+
+        .botGameText {
+            font-size: 0.92rem;
+        }
+
+        .botGameButton {
+            font-size: 0.86rem;
+            padding: 0.42rem 0.7rem;
         }
 
         .commentsContainer {
