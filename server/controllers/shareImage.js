@@ -181,7 +181,9 @@ const renderCell = ({ row, col, bonusType, tile, boardLeft, boardTop }) => {
 
 const createShareSvg = ({ placedTiles, bonusTilePositions, score, date, mode }) => {
   const safeDate = escapeXml(formatImageDate(sanitizeDate(date)));
-  const safeMode = mode === 'blitz' ? 'BLITZ' : 'DAILY';
+  const isPracticeMode = mode === 'practice';
+  const safeMode = mode === 'blitz' ? 'BLITZ' : (isPracticeMode ? 'PRACTICE' : 'DAILY');
+  const headerLine = isPracticeMode ? 'PRACTICE GAME' : `${safeMode} · ${safeDate}`;
   const scoreValue = sanitizeScore(score);
   const { label: scoreLabel, color: labelColor } = getScoreLabelMeta(scoreValue);
 
@@ -225,7 +227,7 @@ const createShareSvg = ({ placedTiles, bonusTilePositions, score, date, mode }) 
   <rect width="100%" height="100%" fill="url(#bgGradient)" />
   ${logoDataUri ? `<image href="${logoDataUri}" x="${logoX}" y="${logoY}" width="${logoSize}" height="${logoSize}" />` : ''}
   <text x="${titleStartX}" y="128" text-anchor="start" font-family="${FONT_FAMILY}" font-size="78" font-weight="900" fill="#25486d" stroke="#25486d" stroke-width="4.8" stroke-opacity="${BOLD_STROKE_OPACITY}" paint-order="stroke fill">SCRAPLE</text>
-  <text x="${headerX}" y="182" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="34" font-weight="900" fill="#35638f" stroke="#35638f" stroke-width="1.8" stroke-opacity="${BOLD_STROKE_OPACITY}" paint-order="stroke fill">${safeMode} · ${safeDate}</text>
+  <text x="${headerX}" y="182" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="34" font-weight="900" fill="#35638f" stroke="#35638f" stroke-width="1.8" stroke-opacity="${BOLD_STROKE_OPACITY}" paint-order="stroke fill">${headerLine}</text>
   <text x="${headerX}" y="232" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="38" font-weight="900" fill="#1f4d78" stroke="#1f4d78" stroke-width="2" stroke-opacity="${BOLD_STROKE_OPACITY}" paint-order="stroke fill">Can you beat my score of ${scoreValue}?</text>
 
   <g>
@@ -276,7 +278,7 @@ const shareImage = async (req, res) => {
 
     const pngData = resvg.render().asPng();
     const fileDate = new Date().toISOString().slice(0, 10);
-    const safeMode = mode === 'blitz' ? 'blitz' : 'daily';
+    const safeMode = mode === 'blitz' ? 'blitz' : (mode === 'practice' ? 'practice' : 'daily');
 
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Content-Length', pngData.length);
