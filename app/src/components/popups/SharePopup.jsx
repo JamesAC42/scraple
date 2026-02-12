@@ -8,25 +8,31 @@ const SHARE_MODE_KEY = 'scraple_share_mode';
 
 const DAILY_DATE_KEY = 'scraple_game_date';
 const BLITZ_DATE_KEY = 'scraple_blitz_game_date';
+const PRACTICE_DATE_KEY = 'scraple_practice_game_date';
 const DAILY_STATE_KEY = 'scraple_game_state';
 const BLITZ_STATE_KEY = 'scraple_blitz_game_state';
+const PRACTICE_STATE_KEY = 'scraple_practice_game_state';
 const DAILY_RESULTS_KEY = 'scraple_game_results';
 const BLITZ_RESULTS_KEY = 'scraple_blitz_game_results';
+const PRACTICE_RESULTS_KEY = 'scraple_practice_game_results';
 
 const DAILY_SHARE_IMAGE_DATE_KEY = 'scraple_daily_share_image_date';
 const DAILY_SHARE_IMAGE_DATA_KEY = 'scraple_daily_share_image_data';
 const BLITZ_SHARE_IMAGE_DATE_KEY = 'scraple_blitz_share_image_date';
 const BLITZ_SHARE_IMAGE_DATA_KEY = 'scraple_blitz_share_image_data';
+const PRACTICE_SHARE_IMAGE_DATE_KEY = 'scraple_practice_share_image_date';
+const PRACTICE_SHARE_IMAGE_DATA_KEY = 'scraple_practice_share_image_data';
 
 const getModeStorage = (mode) => {
   const isBlitz = mode === 'blitz';
+  const isPractice = mode === 'practice';
 
   return {
-    gameDateKey: isBlitz ? BLITZ_DATE_KEY : DAILY_DATE_KEY,
-    gameStateKey: isBlitz ? BLITZ_STATE_KEY : DAILY_STATE_KEY,
-    gameResultsKey: isBlitz ? BLITZ_RESULTS_KEY : DAILY_RESULTS_KEY,
-    shareImageDateKey: isBlitz ? BLITZ_SHARE_IMAGE_DATE_KEY : DAILY_SHARE_IMAGE_DATE_KEY,
-    shareImageDataKey: isBlitz ? BLITZ_SHARE_IMAGE_DATA_KEY : DAILY_SHARE_IMAGE_DATA_KEY
+    gameDateKey: isBlitz ? BLITZ_DATE_KEY : (isPractice ? PRACTICE_DATE_KEY : DAILY_DATE_KEY),
+    gameStateKey: isBlitz ? BLITZ_STATE_KEY : (isPractice ? PRACTICE_STATE_KEY : DAILY_STATE_KEY),
+    gameResultsKey: isBlitz ? BLITZ_RESULTS_KEY : (isPractice ? PRACTICE_RESULTS_KEY : DAILY_RESULTS_KEY),
+    shareImageDateKey: isBlitz ? BLITZ_SHARE_IMAGE_DATE_KEY : (isPractice ? PRACTICE_SHARE_IMAGE_DATE_KEY : DAILY_SHARE_IMAGE_DATE_KEY),
+    shareImageDataKey: isBlitz ? BLITZ_SHARE_IMAGE_DATA_KEY : (isPractice ? PRACTICE_SHARE_IMAGE_DATA_KEY : DAILY_SHARE_IMAGE_DATA_KEY)
   };
 };
 
@@ -57,7 +63,7 @@ const SharePopup = () => {
 
   useEffect(() => {
     const storedMode = localStorage.getItem(SHARE_MODE_KEY);
-    setMode(storedMode === 'blitz' ? 'blitz' : 'daily');
+    setMode(storedMode === 'blitz' ? 'blitz' : (storedMode === 'practice' ? 'practice' : 'daily'));
   }, []);
 
   const cacheKeys = useMemo(() => getModeStorage(mode), [mode]);
@@ -164,7 +170,7 @@ const SharePopup = () => {
     if (!imageDataUrl) return;
 
     const dateTag = localStorage.getItem(cacheKeys.gameDateKey) || getEtTodayString();
-    const modeTag = mode === 'blitz' ? 'blitz' : 'daily';
+    const modeTag = mode === 'blitz' ? 'blitz' : (mode === 'practice' ? 'practice' : 'daily');
 
     const link = document.createElement('a');
     link.href = imageDataUrl;

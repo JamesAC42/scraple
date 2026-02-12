@@ -3,7 +3,7 @@
 import styles from "../styles/pages/page.module.scss";
 import Image from "next/image";
 import { useState, useEffect, useRef } from "react";
-import { IoMdHelpCircleOutline, IoMdInformationCircleOutline, IoMdTrophy, IoMdFlash, IoMdCalendar, IoMdPerson } from "react-icons/io";
+import { IoMdHelpCircleOutline, IoMdInformationCircleOutline, IoMdTrophy, IoMdFlash, IoMdCalendar, IoMdPerson, IoMdMenu, IoMdClose } from "react-icons/io";
 import Board from "@/components/board/Board";
 import Tile from "@/components/board/Tile";
 import TileContainer from "@/components/board/TileContainer";
@@ -25,6 +25,7 @@ import finishGame from "@/lib/finishGame";
 import calculateCurrentScore from "@/lib/calculateCurrentScore";
 import ScoreTracker from "@/components/board/ScoreTracker";
 import NicknamePrompt from "@/components/NicknamePrompt";
+import ThemeToggle from "@/components/ThemeToggle";
 import {
   PLAYER_ID_KEY,
   hasDismissedNicknamePrompt,
@@ -58,8 +59,17 @@ const BLITZ_GAME_DATE_KEY = 'scraple_blitz_game_date';
 const BLITZ_GAME_RESULTS_KEY = 'scraple_blitz_game_results';
 const BLITZ_PUZZLE_ID_KEY = 'scraple_blitz_puzzle_id';
 const BLITZ_START_TIME_KEY = 'scraple_blitz_start_time';
+const PRACTICE_STORAGE_KEY = 'scraple_practice_game_state';
+const PRACTICE_GAME_DATE_KEY = 'scraple_practice_game_date';
+const PRACTICE_GAME_RESULTS_KEY = 'scraple_practice_game_results';
+const PRACTICE_PUZZLE_ID_KEY = 'scraple_practice_puzzle_id';
+const PRACTICE_SHARE_IMAGE_DATE_KEY = 'scraple_practice_share_image_date';
+const PRACTICE_SHARE_IMAGE_DATA_KEY = 'scraple_practice_share_image_data';
 const LEADERBOARD_MODE_KEY = 'scraple_leaderboard_mode';
 const SHARE_MODE_KEY = 'scraple_share_mode';
+const PRACTICE_BOARD_QUERY_KEY = 'board';
+const PRACTICE_MODE_QUERY_KEY = 'practice';
+const PRACTICE_MODE_QUERY_VALUE = '1';
 const SHARE_NEW_BADGE_EXPIRES_ON = '2026-02-14';
 
 const BLITZ_DURATION_SECONDS = 60;
@@ -121,6 +131,116 @@ const normalizeDateString = (value) => {
   return trimmed;
 };
 
+const LETTER_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const BOARD_BONUS_ORDER = ['DOUBLE_LETTER', 'TRIPLE_LETTER', 'DOUBLE_WORD', 'TRIPLE_WORD'];
+
+const toBase64Url = (raw) => btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+
+const fromBase64Url = (value) => {
+  const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padLen = normalized.length % 4 === 0 ? 0 : (4 - (normalized.length % 4));
+  return atob(normalized + '='.repeat(padLen));
+};
+
+const encodeBoardPayload = ({ letters = [], bonusTilePositions = {} }) => {
+  const counts = Array.from({ length: LETTER_ALPHABET.length }, () => 0);
+  letters.forEach((entry) => {
+    const letter = String(entry?.letter || '').toUpperCase();
+    const idx = LETTER_ALPHABET.indexOf(letter);
+    if (idx >= 0) {
+      counts[idx] += 1;
+    }
+  });
+
+  const countsStr = counts
+    .map((count) => Math.max(0, Math.min(35, count)).toString(36))
+    .join('');
+
+  const bonusStr = BOARD_BONUS_ORDER.map((bonusType) => {
+    const pos = bonusTilePositions?.[bonusType];
+    if (!Array.isArray(pos) || pos.length < 2) return '0';
+    const row = Math.max(0, Math.min(4, Number(pos[0]) || 0));
+    const col = Math.max(0, Math.min(4, Number(pos[1]) || 0));
+    return (row * 5 + col).toString(36);
+  }).join('');
+
+  return toBase64Url(`c1${countsStr}${bonusStr}`);
+};
+
+const decodeBoardPayload = (value) => {
+  const decoded = fromBase64Url(value);
+  if (!decoded.startsWith('c1')) {
+    throw new Error('Invalid compact board payload format');
+  }
+
+  const payload = decoded.slice(2);
+  if (payload.length < 30) {
+    throw new Error('Compact board payload too short');
+  }
+
+  const countsStr = payload.slice(0, 26);
+  const bonusStr = payload.slice(26, 30);
+
+  const letters = [];
+  countsStr.split('').forEach((char, index) => {
+    const count = parseInt(char, 36);
+    if (!Number.isFinite(count) || count <= 0) return;
+    const letter = LETTER_ALPHABET[index];
+    const points = letterPoints[letter];
+    for (let i = 0; i < count; i += 1) {
+      letters.push({ letter, points });
+    }
+  });
+
+  const bonusTilePositions = {};
+  BOARD_BONUS_ORDER.forEach((bonusType, index) => {
+    const packed = parseInt(bonusStr[index], 36);
+    if (!Number.isFinite(packed)) return;
+    bonusTilePositions[bonusType] = [Math.floor(packed / 5), packed % 5];
+  });
+
+  return { letters, bonusTilePositions };
+};
+
+const normalizePracticeBoardPayload = (payload) => {
+  if (!payload || typeof payload !== 'object') return null;
+  if (!Array.isArray(payload.letters)) return null;
+  if (!payload.bonusTilePositions || typeof payload.bonusTilePositions !== 'object') return null;
+
+  return {
+    letters: payload.letters,
+    bonusTilePositions: payload.bonusTilePositions,
+    displayDate: 'Practice Game',
+    date: getFormattedDate(),
+    puzzleId: typeof payload.puzzleId === 'string' ? payload.puzzleId : `practice-shared-${Date.now()}`
+  };
+};
+
+const setPracticeQueryParams = ({ enabled, boardData = null }) => {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (enabled) {
+    url.searchParams.set(PRACTICE_MODE_QUERY_KEY, PRACTICE_MODE_QUERY_VALUE);
+    if (boardData) {
+      url.searchParams.set(PRACTICE_BOARD_QUERY_KEY, boardData);
+    } else {
+      url.searchParams.delete(PRACTICE_BOARD_QUERY_KEY);
+    }
+  } else {
+    url.searchParams.delete(PRACTICE_MODE_QUERY_KEY);
+    url.searchParams.delete(PRACTICE_BOARD_QUERY_KEY);
+  }
+
+  const nextPath = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState({}, '', nextPath);
+};
+
+const clearPracticeShareImageCache = () => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(PRACTICE_SHARE_IMAGE_DATE_KEY);
+  localStorage.removeItem(PRACTICE_SHARE_IMAGE_DATA_KEY);
+};
+
 const renderFormattedDefinition = (definition, styles) => {
   if (!definition) return null;
 
@@ -153,6 +273,34 @@ const bonusTileLabels = {
   TRIPLE_LETTER: "3L",
   DOUBLE_WORD: "2W",
   TRIPLE_WORD: "3W"
+};
+
+const getUsedBonusTypesForWord = (positions = [], bonusTilePositions = {}) => {
+  const used = [];
+  const checks = [
+    ['DOUBLE_LETTER', bonusTilePositions.DOUBLE_LETTER],
+    ['TRIPLE_LETTER', bonusTilePositions.TRIPLE_LETTER],
+    ['DOUBLE_WORD', bonusTilePositions.DOUBLE_WORD],
+    ['TRIPLE_WORD', bonusTilePositions.TRIPLE_WORD]
+  ];
+
+  checks.forEach(([type, pos]) => {
+    if (!pos || pos.length < 2) return;
+    const [targetRow, targetCol] = pos;
+    const matches = positions.some((p) => p && p.row === targetRow && p.col === targetCol);
+    if (matches) used.push(type);
+  });
+
+  return used;
+};
+
+const getBonusPraiseForWord = (score, usedBonusTypes, valid) => {
+  if (!valid || !Array.isArray(usedBonusTypes) || usedBonusTypes.length === 0) return null;
+  if (score >= 60) return 'Genius!';
+  if (score >= 50) return 'Superb!';
+  if (score >= 40) return 'Excellent!';
+  if (score >= 30) return 'Great!';
+  return null;
 };
 
 export default function Home() {
@@ -200,6 +348,8 @@ export default function Home() {
 
   const [showFinishPopup, setShowFinishPopup] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [practiceBoardShareMessage, setPracticeBoardShareMessage] = useState('');
   const blitzTimeoutRef = useRef(null);
   const blitzAutoSubmitRef = useRef(false);
   const finalizeGameRef = useRef(null);
@@ -214,7 +364,32 @@ export default function Home() {
   const [currentScore, setCurrentScore] = useState(0);
   const [currentWords, setCurrentWords] = useState([]);
   const isBlitzMode = gameMode === 'blitz';
+  const isPracticeMode = gameMode === 'practice';
   const showShareNewBadge = getFormattedDate() <= SHARE_NEW_BADGE_EXPIRES_ON;
+
+  useEffect(() => {
+    if (!isMobileSidebarOpen) return;
+
+    const onResize = () => {
+      if (window.innerWidth >= 700) {
+        setIsMobileSidebarOpen(false);
+      }
+    };
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsMobileSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', onResize);
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isMobileSidebarOpen]);
 
   const checkDailyCompleted = () => {
     if (typeof window === 'undefined') return false;
@@ -234,25 +409,27 @@ export default function Home() {
 
   const getModeStorage = (mode) => {
     const isBlitz = mode === 'blitz';
+    const isPractice = mode === 'practice';
     return {
-      storageKey: isBlitz ? BLITZ_STORAGE_KEY : STORAGE_KEY,
-      dateKey: isBlitz ? BLITZ_GAME_DATE_KEY : GAME_DATE_KEY,
-      resultsKey: isBlitz ? BLITZ_GAME_RESULTS_KEY : GAME_RESULTS_KEY,
-      puzzleIdKey: isBlitz ? BLITZ_PUZZLE_ID_KEY : null,
+      storageKey: isBlitz ? BLITZ_STORAGE_KEY : (isPractice ? PRACTICE_STORAGE_KEY : STORAGE_KEY),
+      dateKey: isBlitz ? BLITZ_GAME_DATE_KEY : (isPractice ? PRACTICE_GAME_DATE_KEY : GAME_DATE_KEY),
+      resultsKey: isBlitz ? BLITZ_GAME_RESULTS_KEY : (isPractice ? PRACTICE_GAME_RESULTS_KEY : GAME_RESULTS_KEY),
+      puzzleIdKey: isBlitz ? BLITZ_PUZZLE_ID_KEY : (isPractice ? PRACTICE_PUZZLE_ID_KEY : null),
       startTimeKey: isBlitz ? BLITZ_START_TIME_KEY : null
     };
   };
 
   const getModeEndpoints = (mode) => {
     const isBlitz = mode === 'blitz';
+    const isPractice = mode === 'practice';
     return {
-      puzzleEndpoint: isBlitz ? '/api/blitz-puzzle' : '/api/daily-puzzle',
-      leaderboardSubmit: isBlitz ? '/api/blitz/leaderboard/submit' : '/api/leaderboard/submit',
-      leaderboardQuery: isBlitz ? '/api/blitz/leaderboard' : '/api/leaderboard',
-      leaderboardTotal: isBlitz ? '/api/blitz/leaderboard/total' : '/api/leaderboard/total',
-      wordBreakdownEndpoint: isBlitz ? '/api/blitz/leaderboard/word-breakdown' : '/api/leaderboard/word-breakdown',
-      commentsSubmit: isBlitz ? '/api/blitz/leaderboard/comments' : '/api/leaderboard/comments',
-      commentsQuery: isBlitz ? '/api/blitz/leaderboard/comments' : '/api/leaderboard/comments'
+      puzzleEndpoint: isBlitz ? '/api/blitz-puzzle' : (isPractice ? '/api/practice-puzzle' : '/api/daily-puzzle'),
+      leaderboardSubmit: isPractice ? null : (isBlitz ? '/api/blitz/leaderboard/submit' : '/api/leaderboard/submit'),
+      leaderboardQuery: isPractice ? null : (isBlitz ? '/api/blitz/leaderboard' : '/api/leaderboard'),
+      leaderboardTotal: isPractice ? null : (isBlitz ? '/api/blitz/leaderboard/total' : '/api/leaderboard/total'),
+      wordBreakdownEndpoint: isPractice ? null : (isBlitz ? '/api/blitz/leaderboard/word-breakdown' : '/api/leaderboard/word-breakdown'),
+      commentsSubmit: isPractice ? null : (isBlitz ? '/api/blitz/leaderboard/comments' : '/api/leaderboard/comments'),
+      commentsQuery: isPractice ? null : (isBlitz ? '/api/blitz/leaderboard/comments' : '/api/leaderboard/comments')
     };
   };
 
@@ -659,9 +836,124 @@ export default function Home() {
     return false;
   };
 
+  const loadPracticeGameState = async ({ forceNewPuzzle = false, boardPayload = null } = {}) => {
+    if (typeof window === 'undefined') return false;
+
+    const { storageKey, dateKey, resultsKey, puzzleIdKey } = getModeStorage('practice');
+
+    try {
+      if (boardPayload) {
+        clearPracticeShareImageCache();
+        const importedState = {
+          letters: boardPayload.letters,
+          placedTiles: {},
+          usedTileIds: [],
+          isGameFinished: false,
+          date: boardPayload.date || getFormattedDate(),
+          bonusTilePositions: boardPayload.bonusTilePositions,
+          displayDate: boardPayload.displayDate || 'Practice Game',
+          puzzleId: boardPayload.puzzleId || null
+        };
+
+        setLetters(importedState.letters);
+        setPlacedTiles({});
+        setUsedTileIds([]);
+        setBonusTilePositions(importedState.bonusTilePositions);
+        setDisplayDate(importedState.displayDate);
+        setPuzzleId(importedState.puzzleId);
+        setIsGameFinished(false);
+        setGameResults(null);
+        setLeaderboardInfo(null);
+        setWordBreakdown([]);
+        setHasRequestedWordBreakdown(false);
+        resetCommentsState();
+        setValidationError('');
+        setInvalidPlacement(false);
+        localStorage.removeItem(resultsKey);
+        localStorage.setItem(storageKey, JSON.stringify(importedState));
+        localStorage.setItem(dateKey, importedState.date);
+        if (puzzleIdKey && importedState.puzzleId) {
+          localStorage.setItem(puzzleIdKey, importedState.puzzleId);
+        }
+        setIsLoading(false);
+        return true;
+      }
+
+      const savedState = localStorage.getItem(storageKey);
+      const savedResults = localStorage.getItem(resultsKey);
+      const savedPuzzleId = puzzleIdKey ? localStorage.getItem(puzzleIdKey) : null;
+      const shouldUseSaved = !forceNewPuzzle && !!savedState;
+
+      if (shouldUseSaved) {
+        const parsedState = JSON.parse(savedState);
+        setLetters(parsedState.letters || []);
+        setPlacedTiles(parsedState.placedTiles || {});
+        setUsedTileIds(parsedState.usedTileIds || []);
+        setBonusTilePositions(parsedState.bonusTilePositions || {});
+        setDisplayDate(parsedState.displayDate || 'Practice Game');
+        setPuzzleId(parsedState.puzzleId || savedPuzzleId || null);
+        setIsGameFinished(parsedState.isGameFinished === true);
+        setGameResults(savedResults ? JSON.parse(savedResults) : null);
+        setLeaderboardInfo(null);
+        setWordBreakdown([]);
+        setHasRequestedWordBreakdown(false);
+        resetCommentsState();
+        setValidationError('');
+        setInvalidPlacement(false);
+        setIsLoading(false);
+        return true;
+      }
+
+      const practicePuzzle = await fetchPuzzle('practice');
+      if (!practicePuzzle) return false;
+      clearPracticeShareImageCache();
+
+      const nextDate = normalizeDateString(practicePuzzle.date || getFormattedDate());
+      const nextState = {
+        letters: practicePuzzle.letters || [],
+        placedTiles: {},
+        usedTileIds: [],
+        isGameFinished: false,
+        date: nextDate,
+        bonusTilePositions: practicePuzzle.bonusTilePositions || {},
+        displayDate: 'Practice Game',
+        puzzleId: practicePuzzle.puzzleId || null
+      };
+
+      setLetters(nextState.letters);
+      setPlacedTiles({});
+      setUsedTileIds([]);
+      setBonusTilePositions(nextState.bonusTilePositions);
+      setDisplayDate(nextState.displayDate);
+      setPuzzleId(nextState.puzzleId);
+      setIsGameFinished(false);
+      setGameResults(null);
+      setLeaderboardInfo(null);
+      setWordBreakdown([]);
+      setHasRequestedWordBreakdown(false);
+      resetCommentsState();
+      setValidationError('');
+      setInvalidPlacement(false);
+      localStorage.setItem(storageKey, JSON.stringify(nextState));
+      localStorage.setItem(dateKey, nextDate);
+      localStorage.removeItem(resultsKey);
+      if (puzzleIdKey && nextState.puzzleId) {
+        localStorage.setItem(puzzleIdKey, nextState.puzzleId);
+      }
+      return true;
+    } catch (error) {
+      console.error("Error loading practice game state:", error);
+      setIsLoading(false);
+      return false;
+    }
+  };
+
   const loadGameState = async (mode, options = {}) => {
     if (mode === 'blitz') {
       return loadBlitzGameState(options);
+    }
+    if (mode === 'practice') {
+      return loadPracticeGameState(options);
     }
     return loadDailyGameState();
   };
@@ -670,6 +962,10 @@ export default function Home() {
   const resetGame = async () => {
     if (isBlitzMode) {
       await loadBlitzGameState({ forceNewPuzzle: !checkBlitzCompleted() });
+      return;
+    }
+    if (isPracticeMode) {
+      await loadPracticeGameState({ forceNewPuzzle: true });
       return;
     }
     // Fetch the current day's puzzle again
@@ -713,7 +1009,10 @@ export default function Home() {
 
   const switchGameMode = async (mode, { forceNewPuzzle = false } = {}) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem(LEADERBOARD_MODE_KEY, mode);
+      if (mode === 'daily' || mode === 'blitz') {
+        localStorage.setItem(LEADERBOARD_MODE_KEY, mode);
+      }
+      setPracticeQueryParams({ enabled: mode === 'practice' });
     }
     if (mode === 'blitz' && !(dailyCompleted || checkDailyCompleted())) {
       setValidationError('Finish the daily puzzle to unlock Blitz Mode.');
@@ -729,6 +1028,7 @@ export default function Home() {
       resetCommentsState();
       setValidationError('');
       setInvalidPlacement(false);
+      setPracticeBoardShareMessage('');
       await loadGameState(mode, { forceNewPuzzle });
     } finally {
       isModeSwitchingRef.current = false;
@@ -787,9 +1087,42 @@ export default function Home() {
   useEffect(() => {
     const initializeGame = async () => {
       try {
+        const completionDaily = checkDailyCompleted();
+        const completionBlitz = checkBlitzCompleted();
+        setDailyCompleted(completionDaily);
+        setBlitzCompleted(completionBlitz);
+
+        const params = new URLSearchParams(window.location.search);
+        const sharedBoardEncoded = params.get(PRACTICE_BOARD_QUERY_KEY);
+        const practiceModeParam = params.get(PRACTICE_MODE_QUERY_KEY);
+        if (sharedBoardEncoded) {
+          try {
+            const decodedPayload = decodeBoardPayload(sharedBoardEncoded);
+            const normalizedPayload = normalizePracticeBoardPayload(decodedPayload);
+            if (normalizedPayload) {
+              setGameMode('practice');
+              const loadedSharedBoard = await loadPracticeGameState({ boardPayload: normalizedPayload });
+              if (loadedSharedBoard) {
+                setPracticeQueryParams({ enabled: true });
+                return;
+              }
+            }
+          } catch (error) {
+            console.error('Failed to parse shared practice board data:', error);
+          }
+        }
+
+        if (practiceModeParam === PRACTICE_MODE_QUERY_VALUE) {
+          setGameMode('practice');
+          const hasLoadedPracticeState = await loadPracticeGameState();
+          if (hasLoadedPracticeState) {
+            setPracticeQueryParams({ enabled: true });
+            return;
+          }
+        }
+
+        setPracticeQueryParams({ enabled: false });
         setGameMode('daily');
-        setDailyCompleted(checkDailyCompleted());
-        setBlitzCompleted(checkBlitzCompleted());
         const hasLoadedState = await loadGameState('daily');
         
         // If no saved state was loaded, the loadGameState function will have fetched a new puzzle
@@ -1117,6 +1450,7 @@ export default function Home() {
   // Submit score to leaderboard
   const submitScoreToLeaderboard = async (results, mode = gameMode, streakCount = null) => {
     if (!playerId || !results) return null;
+    if (mode === 'practice') return null;
     
     setIsSubmittingScore(true);
     
@@ -1165,6 +1499,36 @@ export default function Home() {
     mode = gameMode,
     { finished = isGameFinished, results = gameResults } = {}
   ) => {
+    if (mode === 'practice') {
+      if (!finished || !results) return;
+      setIsFetchingWordBreakdown(true);
+      setHasRequestedWordBreakdown(true);
+      try {
+        const response = await fetch('/api/practice-word-breakdown', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            words: Array.isArray(results?.words) ? results.words : [],
+            bonusTilePositions: bonusTilePositions || {}
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch practice word breakdown: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setWordBreakdown(Array.isArray(data.words) ? data.words : []);
+      } catch (error) {
+        console.error('Error fetching practice word breakdown:', error);
+        setWordBreakdown([]);
+      } finally {
+        setIsFetchingWordBreakdown(false);
+      }
+      return;
+    }
     if (!playerId || !finished || !results) return;
 
     setIsFetchingWordBreakdown(true);
@@ -1244,6 +1608,11 @@ export default function Home() {
     mode = gameMode,
     { finished = isGameFinished, results = gameResults } = {}
   ) => {
+    if (mode === 'practice') {
+      setComments([]);
+      setHasRequestedComments(true);
+      return;
+    }
     if (!playerId || !finished || !results) return;
 
     setIsFetchingComments(true);
@@ -1277,7 +1646,7 @@ export default function Home() {
 
   const fetchBotGamePreview = async () => {
     if (typeof window === 'undefined') return;
-    if (isBlitzMode) return;
+    if (isBlitzMode || isPracticeMode) return;
     const puzzleDate = normalizeDateString(localStorage.getItem(GAME_DATE_KEY) || getFormattedDate());
     if (!puzzleDate) {
       setBotGamePreview(null);
@@ -1302,6 +1671,7 @@ export default function Home() {
   };
 
   const submitComment = async () => {
+    if (isPracticeMode) return;
     if (!playerId || !isGameFinished || !gameResults) return;
     if (isSubmittingComment) return;
 
@@ -1393,17 +1763,21 @@ export default function Home() {
       const { storageKey, dateKey, resultsKey, puzzleIdKey } = getModeStorage(gameMode);
       // Get the current date from localStorage to ensure consistency
       const currentDate = localStorage.getItem(dateKey) || getFormattedDate();
-      const streakCount = updateStreakOnPuzzleComplete({
-        mode: gameMode,
-        puzzleDate: currentDate
-      });
-      window.dispatchEvent(new CustomEvent('scraple:streak-updated'));
+      const streakCount = isPracticeMode
+        ? null
+        : updateStreakOnPuzzleComplete({
+            mode: gameMode,
+            puzzleDate: currentDate
+          });
+      if (!isPracticeMode) {
+        window.dispatchEvent(new CustomEvent('scraple:streak-updated'));
+      }
 
       // Submit score to leaderboard
       const submitResult = await submitScoreToLeaderboard(results, gameMode, streakCount);
       await fetchWordBreakdown(gameMode, { finished: true, results });
       await fetchComments(gameMode, { finished: true, results });
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && !isPracticeMode) {
         localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode);
       }
       if (gameMode === 'daily') {
@@ -1425,7 +1799,7 @@ export default function Home() {
         date: currentDate, // Use the date from localStorage
         bonusTilePositions,
         displayDate,
-        puzzleId: isBlitzMode ? puzzleId : undefined
+        puzzleId: (isBlitzMode || isPracticeMode) ? puzzleId : undefined
       };
       
       if (typeof window !== 'undefined') {
@@ -1460,9 +1834,36 @@ export default function Home() {
   const handleShare = () => {
     if (!gameResults) return;
     if (typeof window !== 'undefined') {
-      localStorage.setItem(SHARE_MODE_KEY, isBlitzMode ? 'blitz' : 'daily');
+      localStorage.setItem(SHARE_MODE_KEY, isPracticeMode ? 'practice' : (isBlitzMode ? 'blitz' : 'daily'));
     }
     setActivePopup('share');
+  };
+
+  const startNewPracticeGame = async () => {
+    clearPracticeShareImageCache();
+    await switchGameMode('practice', { forceNewPuzzle: true });
+  };
+
+  const handleSharePracticeBoard = async () => {
+    if (typeof window === 'undefined' || !isPracticeMode) return;
+    try {
+      const payload = {
+        letters,
+        bonusTilePositions,
+        puzzleId: puzzleId || null
+      };
+      const encoded = encodeBoardPayload(payload);
+      const shareUrl = `https://scraple.io?${PRACTICE_MODE_QUERY_KEY}=${PRACTICE_MODE_QUERY_VALUE}&${PRACTICE_BOARD_QUERY_KEY}=${encodeURIComponent(encoded)}`;
+      await navigator.clipboard.writeText(shareUrl);
+      setPracticeBoardShareMessage('Practice board link copied.');
+    } catch (error) {
+      console.error('Failed to copy practice board link:', error);
+      setPracticeBoardShareMessage('Unable to copy board link.');
+    }
+
+    setTimeout(() => {
+      setPracticeBoardShareMessage('');
+    }, 3000);
   };
   
   // Calculate current score whenever placedTiles changes
@@ -1545,6 +1946,7 @@ export default function Home() {
   useEffect(() => {
     const fetchLeaderboardInfo = async () => {
       // Only fetch if the game is finished, we have results, and we have a playerId
+      if (gameMode === 'practice') return;
       if (isGameFinished && gameResults && playerId) {
         
         try {
@@ -1626,6 +2028,7 @@ export default function Home() {
   }, [isBlitzMode, isGameFinished, gameResults, playerId]);
 
   useEffect(() => {
+    if (gameMode === 'practice') return;
     if (!isGameFinished || !gameResults || !playerId) return;
     if (isFetchingWordBreakdown) return;
     if (hasRequestedWordBreakdown || wordBreakdown.length > 0) return;
@@ -1633,6 +2036,7 @@ export default function Home() {
   }, [isGameFinished, gameResults, playerId, gameMode, puzzleId, wordBreakdown.length, isFetchingWordBreakdown, hasRequestedWordBreakdown]);
 
   useEffect(() => {
+    if (gameMode === 'practice') return;
     if (!isGameFinished || !gameResults || !playerId) return;
     if (isFetchingComments) return;
     if (hasRequestedComments || comments.length > 0) return;
@@ -1640,12 +2044,12 @@ export default function Home() {
   }, [isGameFinished, gameResults, playerId, gameMode, comments.length, isFetchingComments, hasRequestedComments]);
 
   useEffect(() => {
-    if (!isGameFinished || !gameResults || isBlitzMode) {
+    if (!isGameFinished || !gameResults || isBlitzMode || isPracticeMode) {
       setBotGamePreview(null);
       return;
     }
     fetchBotGamePreview();
-  }, [isGameFinished, gameResults, isBlitzMode]);
+  }, [isGameFinished, gameResults, isBlitzMode, isPracticeMode]);
   
   // Add a new useEffect to show the help popup on first visit
   useEffect(() => {
@@ -1680,7 +2084,7 @@ export default function Home() {
         date: currentDate, // Use the date from localStorage or fallback to current date
         bonusTilePositions,
         displayDate,
-        puzzleId: isBlitzMode ? puzzleId : undefined
+        puzzleId: (isBlitzMode || isPracticeMode) ? puzzleId : undefined
       };
       
       localStorage.setItem(storageKey, JSON.stringify(gameState));
@@ -1702,8 +2106,8 @@ export default function Home() {
     definition: null,
     playedByOthersCount: null,
     averageScoreAmongPlayers: null,
-    usedBonusTypes: [],
-    bonusPraise: null,
+    usedBonusTypes: getUsedBonusTypesForWord(wordResult.positions || [], bonusTilePositions || {}),
+    bonusPraise: getBonusPraiseForWord(wordResult.score, getUsedBonusTypesForWord(wordResult.positions || [], bonusTilePositions || {}), wordResult.valid),
     isHighScoringSpecial: wordResult.valid && wordResult.score > 50,
     isUniqueTodaySpecial: false,
     isSpecial: wordResult.valid && wordResult.score > 50
@@ -1716,6 +2120,7 @@ export default function Home() {
   const didBeatBot = hasBotScoreComparison && playerScore > botScore;
   const tiedBot = hasBotScoreComparison && playerScore === botScore;
   const lostToBot = hasBotScoreComparison && playerScore < botScore;
+  const headerDisplayDate = isPracticeMode ? getDisplayDate() : displayDate;
   const currentPlayerHash = playerId ? getPlayerHash(playerId) : null;
   const hasPlayerComment = currentPlayerHash
     ? comments.some((entry) => entry.hash === currentPlayerHash)
@@ -1741,7 +2146,9 @@ export default function Home() {
       {
         showFinishPopup && (
           <Confirm 
-            message={isBlitzMode ? "Submit your Blitz board now?" : "Are you sure you're done? You get one submission per day!"} 
+            message={isBlitzMode
+              ? "Submit your Blitz board now?"
+              : (isPracticeMode ? "Submit your Practice board now?" : "Are you sure you're done? You get one submission per day!")} 
             confirm={handleConfirm} 
             cancel={() => setShowFinishPopup(false)} />
         )
@@ -1770,36 +2177,79 @@ export default function Home() {
             />
             <div className={styles.gameHeaderText}>
               <h1>Scraple</h1>
-              <p>{displayDate}</p>
+              <p>{headerDisplayDate}</p>
               {isBlitzMode && (
                 <span className={styles.modeBadge}>Blitz Mode</span>
+              )}
+              {isPracticeMode && (
+                <span className={styles.modeBadge}>Practice Mode</span>
               )}
             </div>
 
             <div className={styles.gameHeaderButtons}>
-              {isBlitzMode ? (
-                <button 
-                  className={styles.gameHeaderButton}
-                  onClick={() => switchGameMode('daily')}
-                  title="Back to Daily Mode"
-                >
-                  <IoMdCalendar />
-                </button>
-              ) : (
-                dailyCompleted && (
+              <div className={styles.desktopHeaderActions}>
+                {(isBlitzMode || isPracticeMode) ? (
                   <button 
                     className={styles.gameHeaderButton}
-                    onClick={openBlitzFromDaily}
-                    title={blitzCompleted ? "Review Blitz Mode" : "Play Blitz Mode"}
+                    onClick={() => switchGameMode('daily')}
+                    title="Back to Daily Mode"
                   >
-                    <IoMdFlash />
+                    <IoMdCalendar />
                   </button>
-                )
-              )}
+                ) : (
+                  dailyCompleted && (
+                    <button 
+                      className={styles.gameHeaderButton}
+                      onClick={openBlitzFromDaily}
+                      title={blitzCompleted ? "Review Blitz Mode" : "Play Blitz Mode"}
+                    >
+                      <IoMdFlash />
+                    </button>
+                  )
+                )}
+                <button 
+                  className={styles.gameHeaderButton}
+                  onClick={() => {
+                    localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode === 'blitz' ? 'blitz' : 'daily');
+                    setActivePopup("leaderboard");
+                  }}
+                  data-umami-event="View leaderboard"
+                >
+                  <IoMdTrophy />
+                </button>
+                <button
+                  className={styles.gameHeaderButton}
+                  onClick={() => setActivePopup("profile")}
+                  title={playerNickname ? `Nickname: ${playerNickname}` : 'Set nickname'}
+                  data-umami-event="Open profile popup"
+                >
+                  <IoMdPerson />
+                </button>
+                <button
+                  className={styles.gameHeaderButton}
+                  onClick={() => switchGameMode('practice')}
+                  title="Practice Mode"
+                  data-umami-event="Open practice mode"
+                >
+                  <IoMdShuffle />
+                </button>
+                <button 
+                  className={styles.gameHeaderButton}
+                  onClick={() => setActivePopup("help")}
+                >
+                  <IoMdHelpCircleOutline />
+                </button>
+                <button 
+                  className={styles.gameHeaderButton}
+                  onClick={() => setActivePopup("info")}
+                >
+                  <IoMdInformationCircleOutline />
+                </button>
+              </div>
               <button 
-                className={styles.gameHeaderButton}
+                className={styles.mobileLeaderboardButton}
                 onClick={() => {
-                  localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode);
+                  localStorage.setItem(LEADERBOARD_MODE_KEY, gameMode === 'blitz' ? 'blitz' : 'daily');
                   setActivePopup("leaderboard");
                 }}
                 data-umami-event="View leaderboard"
@@ -1807,27 +2257,106 @@ export default function Home() {
                 <IoMdTrophy />
               </button>
               <button
-                className={styles.gameHeaderButton}
-                onClick={() => setActivePopup("profile")}
-                title={playerNickname ? `Nickname: ${playerNickname}` : 'Set nickname'}
-                data-umami-event="Open profile popup"
+                className={styles.mobileMenuButton}
+                onClick={() => setIsMobileSidebarOpen((prev) => !prev)}
+                aria-label={isMobileSidebarOpen ? 'Close menu' : 'Open menu'}
+                aria-expanded={isMobileSidebarOpen}
+                aria-controls="mobile-sidebar"
               >
-                <IoMdPerson />
-              </button>
-              <button 
-                className={styles.gameHeaderButton}
-                onClick={() => setActivePopup("help")}
-              >
-                <IoMdHelpCircleOutline />
-              </button>
-              <button 
-                className={styles.gameHeaderButton}
-                onClick={() => setActivePopup("info")}
-              >
-                <IoMdInformationCircleOutline />
+                {isMobileSidebarOpen ? <IoMdClose /> : <IoMdMenu />}
               </button>
             </div>
           </div>
+
+          <div
+            className={`${styles.mobileSidebarBackdrop} ${isMobileSidebarOpen ? styles.mobileSidebarBackdropOpen : ''}`}
+            onClick={() => setIsMobileSidebarOpen(false)}
+          />
+          <aside
+            id="mobile-sidebar"
+            className={`${styles.mobileSidebar} ${isMobileSidebarOpen ? styles.mobileSidebarOpen : ''}`}
+            aria-hidden={!isMobileSidebarOpen}
+          >
+            <div className={styles.mobileSidebarItems}>
+              {(isBlitzMode || isPracticeMode) ? (
+                <button
+                  className={styles.mobileSidebarItem}
+                  onClick={() => {
+                    switchGameMode('daily');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                >
+                  <IoMdCalendar />
+                  <span>Daily Mode</span>
+                </button>
+              ) : (
+                <button
+                  className={styles.mobileSidebarItem}
+                  onClick={() => {
+                    if (dailyCompleted) {
+                      openBlitzFromDaily();
+                      setIsMobileSidebarOpen(false);
+                    }
+                  }}
+                  disabled={!dailyCompleted}
+                  title={dailyCompleted ? (blitzCompleted ? "Review Blitz Mode" : "Play Blitz Mode") : 'Finish Daily Mode to unlock Blitz'}
+                >
+                  <IoMdFlash />
+                  <span>{dailyCompleted ? (blitzCompleted ? 'Review Blitz Mode' : 'Play Blitz Mode') : 'Blitz Locked'}</span>
+                </button>
+              )}
+
+              <button
+                className={styles.mobileSidebarItem}
+                onClick={() => {
+                  switchGameMode('practice');
+                  setIsMobileSidebarOpen(false);
+                }}
+              >
+                <IoMdShuffle />
+                <span>Practice Mode</span>
+              </button>
+
+              <button
+                className={styles.mobileSidebarItem}
+                onClick={() => {
+                  setActivePopup("profile");
+                  setIsMobileSidebarOpen(false);
+                }}
+                data-umami-event="Open profile popup"
+              >
+                <IoMdPerson />
+                <span>Profile</span>
+              </button>
+
+              <button
+                className={styles.mobileSidebarItem}
+                onClick={() => {
+                  setActivePopup("help");
+                  setIsMobileSidebarOpen(false);
+                }}
+              >
+                <IoMdHelpCircleOutline />
+                <span>Help</span>
+              </button>
+
+              <button
+                className={styles.mobileSidebarItem}
+                onClick={() => {
+                  setActivePopup("info");
+                  setIsMobileSidebarOpen(false);
+                }}
+              >
+                <IoMdInformationCircleOutline />
+                <span>Info</span>
+              </button>
+            </div>
+
+            <div className={styles.mobileSidebarFooter}>
+              <div className={styles.mobileThemeLabel}>Theme</div>
+              <ThemeToggle variant="slider" />
+            </div>
+          </aside>
 
           <div className={styles.gameState}>
             {invalidPlacement && (
@@ -1848,6 +2377,11 @@ export default function Home() {
             {isSubmittingScore && (
               <div className={styles.calculatingMessage}>
                 Submitting your score...
+              </div>
+            )}
+            {practiceBoardShareMessage && !isGameFinished && (
+              <div className={styles.calculatingMessage}>
+                {practiceBoardShareMessage}
               </div>
             )}
           </div>
@@ -1892,25 +2426,52 @@ export default function Home() {
                   Reset
                 </div>
               </div>
+              {isPracticeMode && !isGameFinished && (
+                <div
+                  onClick={handleSharePracticeBoard}
+                  className={styles.shareBoardButton}
+                >
+                  <IoShareSocialOutline />
+                  <div className={styles.buttonLabel}>
+                    Share
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           
           {isGameFinished && !isCalculating && (
             <div className={styles.gameFinishedMessage}>
-              {isBlitzMode ? "Blitz complete! Nice run." : "Game completed! Come back tomorrow for a new challenge."}
+              {isBlitzMode
+                ? "Blitz complete! Nice run."
+                : (isPracticeMode ? "Practice game complete! Keep training." : "Game completed! Come back tomorrow for a new challenge.")}
             </div>
           )}
 
-          {isGameFinished && !isCalculating && !isBlitzMode && (
+          {isGameFinished && !isCalculating && !isBlitzMode && !isPracticeMode && (
             <div className={styles.blitzPrompt}>
               <div className={styles.blitzPromptText}>
-                Want to try Blitz Mode? You have 60 seconds.
+                Want to try Blitz Mode? You have 60 seconds to get a highscore!
               </div>
               <button
                 className={styles.blitzButton}
                 onClick={openBlitzFromDaily}
               >
                 {blitzCompleted ? 'Review Game' : 'Play Blitz Mode'}
+              </button>
+            </div>
+          )}
+
+          {isGameFinished && !isCalculating && isPracticeMode && (
+            <div className={styles.blitzPrompt}>
+              <div className={styles.blitzPromptText}>
+                Want another practice board?
+              </div>
+              <button
+                className={styles.blitzButton}
+                onClick={startNewPracticeGame}
+              >
+                Start New Practice Game
               </button>
             </div>
           )}
@@ -1933,7 +2494,7 @@ export default function Home() {
           {isGameFinished && gameResults && (
             <div className={styles.resultsContainer}>
               <h2 className={styles.resultsTitle}>
-                {isBlitzMode ? 'Blitz Results' : 'Game Results'}
+                {isBlitzMode ? 'Blitz Results' : (isPracticeMode ? 'Practice Results' : 'Game Results')}
               </h2>
               <div className={styles.totalScore}>
                 Total Score: <span className={gameResults.totalScore >= 0 ? styles.positiveScore : styles.negativeScore}>
@@ -1945,7 +2506,7 @@ export default function Home() {
               </div>
               
               {/* Leaderboard Info */}
-              {leaderboardInfo && (
+              {!isPracticeMode && leaderboardInfo && (
                 <div className={styles.leaderboardInfo}>
                   <div className={styles.leaderboardRank}>
                     {leaderboardInfo.isInTopTen ? (
@@ -1975,18 +2536,31 @@ export default function Home() {
               )}
               
               <div className={styles.shareContainer}>
-                <button 
-                  className={styles.shareButton}
-                  onClick={handleShare}
-                  data-umami-event="Open share board image popup"
-                >
-                  <IoShareSocialOutline /> 
-                  Share my board
-                  {showShareNewBadge && <span className={styles.newBadge}>NEW!</span>}
-                </button>
+                <div className={styles.shareButtonsRow}>
+                  <button 
+                    className={styles.shareButton}
+                    onClick={handleShare}
+                    data-umami-event="Open share board image popup"
+                  >
+                    <IoShareSocialOutline /> 
+                    Share my board
+                    {showShareNewBadge && <span className={styles.newBadge}>NEW!</span>}
+                  </button>
+                  {isPracticeMode && (
+                    <button
+                      className={`${styles.shareButton} ${styles.practiceShareButton}`}
+                      onClick={handleSharePracticeBoard}
+                      data-umami-event="Copy practice board link"
+                    >
+                      <IoShareSocialOutline />
+                      Share practice board link
+                    </button>
+                  )}
+                </div>
+                {practiceBoardShareMessage && <div className={styles.shareMessage}>{practiceBoardShareMessage}</div>}
               </div>
 
-              {!isBlitzMode && (
+              {!isBlitzMode && !isPracticeMode && (
                 <div className={`${styles.botGameContainer} ${didBeatBot ? styles.botGameContainerWin : ''}`}>
                   <div className={styles.botGameText}>
                     <Image
@@ -2013,13 +2587,13 @@ export default function Home() {
               
               <div className={styles.wordsContainer}>
                 <h3>Word Breakdown</h3>
-                {isFetchingWordBreakdown && (
+                {!isPracticeMode && isFetchingWordBreakdown && (
                   <div className={styles.wordsLoading}>Loading definitions and usage stats...</div>
                 )}
                 {!isFetchingWordBreakdown && !hasSubmittedWords && (
                   <div className={styles.wordsLoading}>You did not create any words.</div>
                 )}
-                {!isFetchingWordBreakdown && hasSubmittedWords && wordBreakdown.length === 0 && (
+                {!isPracticeMode && !isFetchingWordBreakdown && hasSubmittedWords && wordBreakdown.length === 0 && (
                   <div className={styles.wordsLoading}>Showing your scores while detailed stats load.</div>
                 )}
                 <ul className={styles.breakdownList}>
@@ -2056,16 +2630,20 @@ export default function Home() {
                           ? renderFormattedDefinition(wordResult.definition, styles)
                           : (wordResult.valid ? 'Definition unavailable.' : 'Not a valid dictionary word.')}
                       </div>
-                      <div className={styles.breakdownMeta}>
-                        {wordResult.playedByOthersCount === null
-                          ? 'Usage stats loading...'
-                          : `${wordResult.playedByOthersCount} other player${wordResult.playedByOthersCount === 1 ? '' : 's'} used this word today`}
-                      </div>
-                      <div className={styles.breakdownMetaSecondary}>
-                        {typeof wordResult.averageScoreAmongPlayers === 'number'
-                          ? `Average score of players who used this word: ${wordResult.averageScoreAmongPlayers.toFixed(2)}`
-                          : 'Average score of players who used this word: loading...'}
-                      </div>
+                      {!isPracticeMode && (
+                        <div className={styles.breakdownMeta}>
+                          {wordResult.playedByOthersCount === null
+                            ? 'Usage stats loading...'
+                            : `${wordResult.playedByOthersCount} other player${wordResult.playedByOthersCount === 1 ? '' : 's'} used this word today`}
+                        </div>
+                      )}
+                      {!isPracticeMode && (
+                        <div className={styles.breakdownMetaSecondary}>
+                          {typeof wordResult.averageScoreAmongPlayers === 'number'
+                            ? `Average score of players who used this word: ${wordResult.averageScoreAmongPlayers.toFixed(2)}`
+                            : 'Average score of players who used this word: loading...'}
+                        </div>
+                      )}
                       {(wordResult.isHighScoringSpecial || wordResult.isUniqueTodaySpecial) && (
                         <div className={styles.specialTags}>
                           {wordResult.isHighScoringSpecial && <span className={`${styles.specialTag} ${styles.specialTagHigh}`}>50+ POINT WORD</span>}
@@ -2077,6 +2655,7 @@ export default function Home() {
                 </ul>
               </div>
 
+              {!isPracticeMode && (
               <div className={styles.commentsContainer}>
                 <h3>Leave a comment</h3>
                 <textarea
@@ -2150,6 +2729,7 @@ export default function Home() {
                   ))}
                 </ul>
               </div>
+              )}
             </div>
           )}
 
@@ -2198,6 +2778,17 @@ export default function Home() {
                 Reset
               </div>
             </div>
+            {isPracticeMode && !isGameFinished && (
+              <div
+                onClick={handleSharePracticeBoard}
+                className={styles.shareBoardButton}
+              >
+                <IoShareSocialOutline />
+                <div className={styles.buttonLabel}>
+                  Share
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Reset all data button has been moved to the info popup */}
