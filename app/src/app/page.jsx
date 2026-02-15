@@ -35,6 +35,7 @@ import {
   getPlayerHash
 } from "@/lib/nickname";
 import { updateStreakOnPuzzleComplete } from "@/lib/streaks";
+import { recordCompletedGameStats } from "@/lib/userStats";
 
 // Letter points mapping
 const letterPoints = {
@@ -1763,6 +1764,15 @@ export default function Home() {
       const { storageKey, dateKey, resultsKey, puzzleIdKey } = getModeStorage(gameMode);
       // Get the current date from localStorage to ensure consistency
       const currentDate = localStorage.getItem(dateKey) || getFormattedDate();
+      recordCompletedGameStats({
+        date: currentDate,
+        mode: gameMode,
+        score: results.totalScore,
+        puzzleId: gameMode === 'blitz' ? puzzleId : null,
+        displayDate,
+        placedTiles,
+        bonusTilePositions
+      });
       const streakCount = isPracticeMode
         ? null
         : updateStreakOnPuzzleComplete({

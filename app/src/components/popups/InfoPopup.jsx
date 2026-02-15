@@ -5,6 +5,7 @@ import { FaGithub } from "react-icons/fa";
 import { MdEmail } from "react-icons/md";
 import { FaXTwitter } from "react-icons/fa6";
 import { useState } from "react";
+import { clearStoredUserStats } from "@/lib/userStats";
 
 const InfoPopup = ({ onClose }) => {
     const [isResetting, setIsResetting] = useState(false);
@@ -24,10 +25,22 @@ const InfoPopup = ({ onClose }) => {
             localStorage.removeItem('scraple_game_state');
             localStorage.removeItem('scraple_game_date');
             localStorage.removeItem('scraple_game_results');
+            localStorage.removeItem('scraple_blitz_game_state');
+            localStorage.removeItem('scraple_blitz_game_date');
+            localStorage.removeItem('scraple_blitz_game_results');
+            localStorage.removeItem('scraple_blitz_puzzle_id');
+            localStorage.removeItem('scraple_blitz_start_time');
+            localStorage.removeItem('scraple_practice_game_state');
+            localStorage.removeItem('scraple_practice_game_date');
+            localStorage.removeItem('scraple_practice_game_results');
+            localStorage.removeItem('scraple_practice_puzzle_id');
+            localStorage.removeItem('scraple_practice_share_image_date');
+            localStorage.removeItem('scraple_practice_share_image_data');
             localStorage.removeItem('scraple_daily_share_image_date');
             localStorage.removeItem('scraple_daily_share_image_data');
             localStorage.removeItem('scraple_blitz_share_image_date');
             localStorage.removeItem('scraple_blitz_share_image_data');
+            clearStoredUserStats();
             
             // Keep the player ID as it's not related to the game state
             // localStorage.removeItem('scraple_player_id');
