@@ -327,7 +327,6 @@ class CompactTrie {
 }
 
 async function loadDictionary(redisClient) {
-  const wordSet = new Set();
   const trie = new CompactTrie();
   let loadedWords = 0;
   let cursor = '0';
@@ -345,13 +344,12 @@ async function loadDictionary(redisClient) {
     for (let i = 0; i < entries.length; i += 2) {
       const rawWord = String(entries[i] || '').toUpperCase();
       if (!LETTER_RE.test(rawWord)) continue;
-      wordSet.add(rawWord);
       trie.insertWord(rawWord);
       loadedWords += 1;
     }
   } while (cursor !== '0');
 
-  return { wordSet, trie, loadedWords };
+  return { trie, loadedWords };
 }
 
 function formatBoard(board) {
@@ -393,7 +391,7 @@ function toBoardRows(board) {
   return rows;
 }
 
-function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
+function makeSolver({ letters, bonusCoords, trie, options = {} }) {
   const useUpperBound = options.useUpperBound !== false;
   const useMemo = options.useMemo !== false;
   const configuredTimeLimit = Number(options.timeLimitMs ?? process.env.TIME_LIMIT_MS ?? 15000);
@@ -595,16 +593,19 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
           let raw = 0;
           let mult = 1;
           let word = '';
+          let node = 0;
           const positions = [];
           for (let c = col; c <= endCol; c += 1) {
             const idx = cellIndex(row, c);
             const li = board[idx];
+            node = trie.step(node, li);
+            if (node < 0) return null;
             word += decodeLetter(li);
             raw += LETTER_POINTS[li] * letterMult[idx];
             mult *= wordMult[idx];
             positions.push({ row, col: c });
           }
-          if (!wordSet.has(word)) return null;
+          if (!trie.isWordNode(node)) return null;
           const score = raw * mult;
           total += score;
           words.push({ word, score, positions });
@@ -632,16 +633,19 @@ function makeSolver({ letters, bonusCoords, wordSet, trie, options = {} }) {
           let raw = 0;
           let mult = 1;
           let word = '';
+          let node = 0;
           const positions = [];
           for (let r = row; r <= endRow; r += 1) {
             const idx = cellIndex(r, col);
             const li = board[idx];
+            node = trie.step(node, li);
+            if (node < 0) return null;
             word += decodeLetter(li);
             raw += LETTER_POINTS[li] * letterMult[idx];
             mult *= wordMult[idx];
             positions.push({ row: r, col });
           }
-          if (!wordSet.has(word)) return null;
+          if (!trie.isWordNode(node)) return null;
           const score = raw * mult;
           total += score;
           words.push({ word, score, positions });
@@ -899,15 +903,14 @@ async function main() {
       )}`
     );
 
-    console.log('[bot] loading dictionary from redis and building word set + trie...');
-    const { wordSet, trie, loadedWords } = await loadDictionary(redisClient);
-    console.log(`[bot] dictionary loaded entries=${loadedWords} uniqueWords=${wordSet.size}`);
+    console.log('[bot] loading dictionary from redis and building trie...');
+    const { trie, loadedWords } = await loadDictionary(redisClient);
+    console.log(`[bot] dictionary loaded entries=${loadedWords}`);
 
     console.log('[bot] starting DFS search...');
     const solverInput = {
       letters,
       bonusCoords: puzzle.bonusTilePositions || {},
-      wordSet,
       trie,
       options: {
         useUpperBound: true,
