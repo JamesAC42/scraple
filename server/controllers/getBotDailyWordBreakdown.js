@@ -8,7 +8,20 @@ const WORD_AVG_SCORE_SUFFIX = ':word-avg-score';
 
 const parseWordAverageEntry = (value) => {
   if (!value) return null;
-  const [avgRaw] = String(value).split('|');
+  const raw = String(value);
+
+  // Current format shared by leaderboard stats.
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.avgScore === 'number' && Number.isFinite(parsed.avgScore)) {
+      return { avgScore: parsed.avgScore };
+    }
+  } catch (_) {
+    // Fall through to legacy parsing.
+  }
+
+  // Legacy format: "<avg>|..."
+  const [avgRaw] = raw.split('|');
   const avgScore = Number.parseFloat(avgRaw);
   if (!Number.isFinite(avgScore)) return null;
   return { avgScore };
@@ -170,4 +183,3 @@ const getBotDailyWordBreakdown = async (req, res) => {
 };
 
 module.exports = { getBotDailyWordBreakdown };
-

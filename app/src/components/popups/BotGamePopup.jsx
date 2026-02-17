@@ -244,7 +244,7 @@ const BotGamePopup = () => {
                 <div className={styles.metaSecondary}>
                   {typeof wordResult.averageScoreAmongPlayers === 'number'
                     ? `Average score of players who used this word: ${wordResult.averageScoreAmongPlayers.toFixed(2)}`
-                    : 'Average score of players who used this word: loading...'}
+                    : 'Average score of players who used this word: N/A'}
                 </div>
                 {(wordResult.isHighScoringSpecial || wordResult.isUniqueTodaySpecial) && (
                   <div className={styles.specialTags}>
