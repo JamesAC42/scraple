@@ -94,6 +94,10 @@ function printRuntimeEnv(targetDate) {
   console.log(`[force-bot] NODE_LIMIT: ${process.env.NODE_LIMIT || '(unset)'}`);
   console.log(`[force-bot] MEMO_MAX_ENTRIES: ${process.env.MEMO_MAX_ENTRIES || '(unset)'}`);
   console.log(`[force-bot] MEMO_MIN_CELL: ${process.env.MEMO_MIN_CELL || '(unset)'}`);
+  console.log(`[force-bot] BOT_PROGRESS_INTERVAL_MS: ${process.env.BOT_PROGRESS_INTERVAL_MS || '(unset)'}`);
+  console.log(`[force-bot] TIME_CHECK_EVERY_NODES: ${process.env.TIME_CHECK_EVERY_NODES || '(unset)'}`);
+  console.log(`[force-bot] USE_CHEAP_UPPER_BOUND: ${process.env.USE_CHEAP_UPPER_BOUND || '(unset)'}`);
+  console.log(`[force-bot] UPPER_BOUND_MIN_CELL: ${process.env.UPPER_BOUND_MIN_CELL || '(unset)'}`);
 }
 
 async function main() {

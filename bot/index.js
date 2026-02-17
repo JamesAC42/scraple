@@ -209,20 +209,16 @@ function getRedisConfig() {
 }
 
 class CompactTrie {
-  constructor(initialNodeCap = 1024, initialEdgeCap = 4096) {
+  constructor(initialNodeCap = 1024) {
     this.nodeCap = initialNodeCap;
-    this.edgeCap = initialEdgeCap;
     this.nodeCount = 1; // root at 0
-    this.edgeCount = 0;
 
     this.nodeHead = new Uint32Array(this.nodeCap);
     this.nodeHead.fill(0xffffffff);
     this.nodeIsWord = new Uint8Array(this.nodeCap);
-
-    this.edgeChar = new Uint8Array(this.edgeCap);
-    this.edgeTo = new Uint32Array(this.edgeCap);
-    this.edgeNext = new Uint32Array(this.edgeCap);
-    this.edgeNext.fill(0xffffffff);
+    this.nodeChildMask = new Uint32Array(this.nodeCap);
+    this.childTo = new Uint32Array(this.nodeCap * 26);
+    this.childTo.fill(0xffffffff);
   }
 
   ensureNodeCapacity() {
@@ -238,27 +234,16 @@ class CompactTrie {
     nextIsWord.set(this.nodeIsWord);
     this.nodeIsWord = nextIsWord;
 
+    const nextChildMask = new Uint32Array(nextCap);
+    nextChildMask.set(this.nodeChildMask);
+    this.nodeChildMask = nextChildMask;
+
+    const nextChildTo = new Uint32Array(nextCap * 26);
+    nextChildTo.fill(0xffffffff);
+    nextChildTo.set(this.childTo);
+    this.childTo = nextChildTo;
+
     this.nodeCap = nextCap;
-  }
-
-  ensureEdgeCapacity() {
-    if (this.edgeCount < this.edgeCap) return;
-    const nextCap = this.edgeCap * 2;
-
-    const nextChar = new Uint8Array(nextCap);
-    nextChar.set(this.edgeChar);
-    this.edgeChar = nextChar;
-
-    const nextTo = new Uint32Array(nextCap);
-    nextTo.set(this.edgeTo);
-    this.edgeTo = nextTo;
-
-    const nextNext = new Uint32Array(nextCap);
-    nextNext.fill(0xffffffff);
-    nextNext.set(this.edgeNext);
-    this.edgeNext = nextNext;
-
-    this.edgeCap = nextCap;
   }
 
   createNode() {
@@ -267,31 +252,24 @@ class CompactTrie {
     this.nodeCount += 1;
     this.nodeHead[idx] = 0xffffffff;
     this.nodeIsWord[idx] = 0;
+    this.nodeChildMask[idx] = 0;
+    const base = idx * 26;
+    this.childTo.fill(0xffffffff, base, base + 26);
     return idx;
   }
 
-  findEdge(node, letterIdx) {
-    let e = this.nodeHead[node];
-    while (e !== 0xffffffff) {
-      if (this.edgeChar[e] === letterIdx) return e;
-      e = this.edgeNext[e];
-    }
-    return 0xffffffff;
+  childSlot(node, letterIdx) {
+    return node * 26 + letterIdx;
   }
 
   getOrAddChild(node, letterIdx) {
-    const existing = this.findEdge(node, letterIdx);
-    if (existing !== 0xffffffff) return this.edgeTo[existing];
+    const slot = this.childSlot(node, letterIdx);
+    const existing = this.childTo[slot];
+    if (existing !== 0xffffffff) return existing;
 
     const child = this.createNode();
-    this.ensureEdgeCapacity();
-    const edge = this.edgeCount;
-    this.edgeCount += 1;
-
-    this.edgeChar[edge] = letterIdx;
-    this.edgeTo[edge] = child;
-    this.edgeNext[edge] = this.nodeHead[node];
-    this.nodeHead[node] = edge;
+    this.childTo[slot] = child;
+    this.nodeChildMask[node] |= 1 << letterIdx;
 
     return child;
   }
@@ -307,20 +285,24 @@ class CompactTrie {
   }
 
   step(node, letterIdx) {
-    const e = this.findEdge(node, letterIdx);
-    return e === 0xffffffff ? -1 : this.edgeTo[e];
+    const child = this.childTo[this.childSlot(node, letterIdx)];
+    return child === 0xffffffff ? -1 : child;
   }
 
   isWordNode(node) {
     return node >= 0 && this.nodeIsWord[node] === 1;
   }
 
+  childMask(node) {
+    return node >= 0 ? this.nodeChildMask[node] : 0;
+  }
+
   hasPrefixFromBuffer(buffer, len) {
     let node = 0;
     for (let i = 0; i < len; i += 1) {
-      const e = this.findEdge(node, buffer[i]);
-      if (e === 0xffffffff) return false;
-      node = this.edgeTo[e];
+      const child = this.childTo[this.childSlot(node, buffer[i])];
+      if (child === 0xffffffff) return false;
+      node = child;
     }
     return true;
   }
@@ -350,6 +332,190 @@ async function loadDictionary(redisClient) {
   } while (cursor !== '0');
 
   return { trie, loadedWords };
+}
+
+class MemoCellTable {
+  constructor(initialCapacity = 1024) {
+    let cap = 1;
+    while (cap < initialCapacity) cap <<= 1;
+    this.capacity = cap;
+    this.mask = cap - 1;
+    this.size = 0;
+    this.used = new Uint8Array(cap);
+    this.hashes = new Uint32Array(cap);
+    this.values = new Int32Array(cap);
+    this.acrossNodes = new Uint32Array(cap);
+    this.lensLo = new Uint16Array(cap);
+    this.lensHi = new Uint8Array(cap);
+    this.down0 = new Uint32Array(cap);
+    this.down1 = new Uint32Array(cap);
+    this.down2 = new Uint32Array(cap);
+    this.down3 = new Uint32Array(cap);
+    this.down4 = new Uint32Array(cap);
+    this.pc0 = new Uint16Array(cap);
+    this.pc1 = new Uint16Array(cap);
+    this.pc2 = new Uint16Array(cap);
+    this.pc3 = new Uint16Array(cap);
+    this.pc4 = new Uint16Array(cap);
+    this.pc5 = new Uint16Array(cap);
+    this.pc6 = new Uint16Array(cap);
+    this.pc7 = new Uint16Array(cap);
+    this.pc8 = new Uint16Array(cap);
+  }
+
+  clear() {
+    this.used.fill(0);
+    this.size = 0;
+  }
+
+  equalsAt(slot, hash, acrossNode, lensLo, lensHi, downNodes, packedCounts) {
+    return (
+      this.hashes[slot] === hash &&
+      this.acrossNodes[slot] === acrossNode &&
+      this.lensLo[slot] === lensLo &&
+      this.lensHi[slot] === lensHi &&
+      this.down0[slot] === downNodes[0] &&
+      this.down1[slot] === downNodes[1] &&
+      this.down2[slot] === downNodes[2] &&
+      this.down3[slot] === downNodes[3] &&
+      this.down4[slot] === downNodes[4] &&
+      this.pc0[slot] === packedCounts[0] &&
+      this.pc1[slot] === packedCounts[1] &&
+      this.pc2[slot] === packedCounts[2] &&
+      this.pc3[slot] === packedCounts[3] &&
+      this.pc4[slot] === packedCounts[4] &&
+      this.pc5[slot] === packedCounts[5] &&
+      this.pc6[slot] === packedCounts[6] &&
+      this.pc7[slot] === packedCounts[7] &&
+      this.pc8[slot] === packedCounts[8]
+    );
+  }
+
+  writeAt(slot, hash, acrossNode, lensLo, lensHi, downNodes, packedCounts, value) {
+    this.used[slot] = 1;
+    this.hashes[slot] = hash;
+    this.values[slot] = value;
+    this.acrossNodes[slot] = acrossNode;
+    this.lensLo[slot] = lensLo;
+    this.lensHi[slot] = lensHi;
+    this.down0[slot] = downNodes[0];
+    this.down1[slot] = downNodes[1];
+    this.down2[slot] = downNodes[2];
+    this.down3[slot] = downNodes[3];
+    this.down4[slot] = downNodes[4];
+    this.pc0[slot] = packedCounts[0];
+    this.pc1[slot] = packedCounts[1];
+    this.pc2[slot] = packedCounts[2];
+    this.pc3[slot] = packedCounts[3];
+    this.pc4[slot] = packedCounts[4];
+    this.pc5[slot] = packedCounts[5];
+    this.pc6[slot] = packedCounts[6];
+    this.pc7[slot] = packedCounts[7];
+    this.pc8[slot] = packedCounts[8];
+  }
+
+  resize(nextCapacity) {
+    const previous = {
+      capacity: this.capacity,
+      used: this.used,
+      hashes: this.hashes,
+      values: this.values,
+      acrossNodes: this.acrossNodes,
+      lensLo: this.lensLo,
+      lensHi: this.lensHi,
+      down0: this.down0,
+      down1: this.down1,
+      down2: this.down2,
+      down3: this.down3,
+      down4: this.down4,
+      pc0: this.pc0,
+      pc1: this.pc1,
+      pc2: this.pc2,
+      pc3: this.pc3,
+      pc4: this.pc4,
+      pc5: this.pc5,
+      pc6: this.pc6,
+      pc7: this.pc7,
+      pc8: this.pc8
+    };
+
+    this.capacity = nextCapacity;
+    this.mask = nextCapacity - 1;
+    this.size = 0;
+    this.used = new Uint8Array(nextCapacity);
+    this.hashes = new Uint32Array(nextCapacity);
+    this.values = new Int32Array(nextCapacity);
+    this.acrossNodes = new Uint32Array(nextCapacity);
+    this.lensLo = new Uint16Array(nextCapacity);
+    this.lensHi = new Uint8Array(nextCapacity);
+    this.down0 = new Uint32Array(nextCapacity);
+    this.down1 = new Uint32Array(nextCapacity);
+    this.down2 = new Uint32Array(nextCapacity);
+    this.down3 = new Uint32Array(nextCapacity);
+    this.down4 = new Uint32Array(nextCapacity);
+    this.pc0 = new Uint16Array(nextCapacity);
+    this.pc1 = new Uint16Array(nextCapacity);
+    this.pc2 = new Uint16Array(nextCapacity);
+    this.pc3 = new Uint16Array(nextCapacity);
+    this.pc4 = new Uint16Array(nextCapacity);
+    this.pc5 = new Uint16Array(nextCapacity);
+    this.pc6 = new Uint16Array(nextCapacity);
+    this.pc7 = new Uint16Array(nextCapacity);
+    this.pc8 = new Uint16Array(nextCapacity);
+
+    for (let i = 0; i < previous.capacity; i += 1) {
+      if (previous.used[i] !== 1) continue;
+      this.set(
+        previous.hashes[i],
+        previous.acrossNodes[i],
+        previous.lensLo[i],
+        previous.lensHi[i],
+        [previous.down0[i], previous.down1[i], previous.down2[i], previous.down3[i], previous.down4[i]],
+        [
+          previous.pc0[i],
+          previous.pc1[i],
+          previous.pc2[i],
+          previous.pc3[i],
+          previous.pc4[i],
+          previous.pc5[i],
+          previous.pc6[i],
+          previous.pc7[i],
+          previous.pc8[i]
+        ],
+        previous.values[i]
+      );
+    }
+  }
+
+  get(hash, acrossNode, lensLo, lensHi, downNodes, packedCounts) {
+    let slot = hash & this.mask;
+    while (this.used[slot] === 1) {
+      if (this.equalsAt(slot, hash, acrossNode, lensLo, lensHi, downNodes, packedCounts)) {
+        return this.values[slot];
+      }
+      slot = (slot + 1) & this.mask;
+    }
+    return undefined;
+  }
+
+  set(hash, acrossNode, lensLo, lensHi, downNodes, packedCounts, value) {
+    if ((this.size + 1) * 10 > this.capacity * 7) {
+      this.resize(this.capacity * 2);
+    }
+
+    let slot = hash & this.mask;
+    while (this.used[slot] === 1) {
+      if (this.equalsAt(slot, hash, acrossNode, lensLo, lensHi, downNodes, packedCounts)) {
+        this.values[slot] = value;
+        return false;
+      }
+      slot = (slot + 1) & this.mask;
+    }
+
+    this.writeAt(slot, hash, acrossNode, lensLo, lensHi, downNodes, packedCounts, value);
+    this.size += 1;
+    return true;
+  }
 }
 
 function formatBoard(board) {
@@ -395,10 +561,31 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
   const useUpperBound = options.useUpperBound !== false;
   const useMemo = options.useMemo !== false;
   const configuredTimeLimit = Number(options.timeLimitMs ?? process.env.TIME_LIMIT_MS ?? 15000);
+  const configuredProgressInterval = Number(options.progressIntervalMs ?? process.env.BOT_PROGRESS_INTERVAL_MS ?? 3000);
+  const configuredTimeCheckEveryNodes = Number(
+    options.timeCheckEveryNodes ?? process.env.TIME_CHECK_EVERY_NODES ?? 1024
+  );
+  const configuredUpperBoundMinCell = Number(options.upperBoundMinCell ?? process.env.UPPER_BOUND_MIN_CELL ?? 0);
+  const configuredUseCheapUpperBound =
+    options.useCheapUpperBound ??
+    (typeof process.env.USE_CHEAP_UPPER_BOUND === 'string' ? process.env.USE_CHEAP_UPPER_BOUND === '1' : false);
   const configuredNodeLimit = Number(options.nodeLimit ?? process.env.NODE_LIMIT ?? 0);
   const configuredMemoMaxEntries = Number(options.memoMaxEntries ?? process.env.MEMO_MAX_ENTRIES ?? 250000);
   const configuredMemoMinCell = Number(options.memoMinCell ?? process.env.MEMO_MIN_CELL ?? 10);
   const timeLimitMs = Number.isFinite(configuredTimeLimit) && configuredTimeLimit > 0 ? configuredTimeLimit : 15000;
+  const progressIntervalMs =
+    Number.isFinite(configuredProgressInterval) && configuredProgressInterval > 250
+      ? Math.floor(configuredProgressInterval)
+      : 3000;
+  const timeCheckEveryNodes =
+    Number.isFinite(configuredTimeCheckEveryNodes) && configuredTimeCheckEveryNodes >= 1
+      ? Math.floor(configuredTimeCheckEveryNodes)
+      : 1024;
+  const useCheapUpperBound = configuredUseCheapUpperBound === true;
+  const upperBoundMinCell =
+    Number.isFinite(configuredUpperBoundMinCell) && configuredUpperBoundMinCell >= 0 && configuredUpperBoundMinCell < CELL_COUNT
+      ? Math.floor(configuredUpperBoundMinCell)
+      : 0;
   const nodeLimit = Number.isFinite(configuredNodeLimit) && configuredNodeLimit > 0 ? Math.floor(configuredNodeLimit) : 0;
   const memoMaxEntries =
     Number.isFinite(configuredMemoMaxEntries) && configuredMemoMaxEntries > 1000
@@ -413,6 +600,10 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
   board.fill(UNASSIGNED);
 
   const counts = buildRackCounts(letters);
+  let rackMask = 0;
+  for (let li = 0; li < 26; li += 1) {
+    if (counts[li] > 0) rackMask |= 1 << li;
+  }
   const totalRackLetters = counts.reduce((sum, n) => sum + n, 0);
 
   const { letterMult, wordMult } = buildBonusMaps(bonusCoords);
@@ -433,10 +624,15 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
   let memoStores = 0;
   let progress = null;
   let upperChecks = 0;
+  let upperExactChecks = 0;
+  let upperSkippedByCell = 0;
   let minAcceptedUpperBound = Number.POSITIVE_INFINITY;
   let maxPrunedUpperBound = Number.NEGATIVE_INFINITY;
+  let prunedUpperFast = 0;
+  let prunedUpperExact = 0;
   let placedLetterBase = 0;
-  const memoByCell = useMemo ? Array.from({ length: CELL_COUNT + 1 }, () => new Map()) : null;
+  const memoByCell = useMemo ? Array.from({ length: CELL_COUNT + 1 }, () => new MemoCellTable()) : null;
+  const memoPackedCounts = new Uint16Array(9);
   let memoEntries = 0;
 
   const rowWordBound = new Uint8Array(BOARD_SIZE);
@@ -446,18 +642,91 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
   const POINT_ORDER = [10, 8, 5, 4, 3, 2, 1];
   const downNodes = new Uint32Array(BOARD_SIZE);
   const downLens = new Uint8Array(BOARD_SIZE);
-  const letterOrderByMultiplier = [[], [], [], []];
+  const letterOrderByImpact = Array.from({ length: 10 }, () => []);
+  const staticCoeffByCell = new Uint8Array(CELL_COUNT);
+  const staticCoeffBuckets = new Uint16Array(64);
+  let nodesSinceTimeCheck = 0;
 
-  for (let mult = 1; mult <= 3; mult += 1) {
+  for (let impact = 1; impact <= 9; impact += 1) {
     const order = [];
     for (let li = 0; li < 26; li += 1) order.push(li);
     order.sort((a, b) => {
-      const av = LETTER_POINTS[a] * mult;
-      const bv = LETTER_POINTS[b] * mult;
+      const av = LETTER_POINTS[a] * impact;
+      const bv = LETTER_POINTS[b] * impact;
       if (bv !== av) return bv - av;
       return a - b;
     });
-    letterOrderByMultiplier[mult] = order;
+    letterOrderByImpact[impact] = order;
+  }
+
+  const rowStaticWordBound = new Uint8Array(BOARD_SIZE);
+  const colStaticWordBound = new Uint8Array(BOARD_SIZE);
+  for (let row = 0; row < BOARD_SIZE; row += 1) {
+    let product = 1;
+    for (let col = 0; col < BOARD_SIZE; col += 1) {
+      product *= wordMult[cellIndex(row, col)];
+    }
+    rowStaticWordBound[row] = product;
+  }
+  for (let col = 0; col < BOARD_SIZE; col += 1) {
+    let product = 1;
+    for (let row = 0; row < BOARD_SIZE; row += 1) {
+      product *= wordMult[cellIndex(row, col)];
+    }
+    colStaticWordBound[col] = product;
+  }
+  for (let i = 0; i < CELL_COUNT; i += 1) {
+    const row = cellRow(i);
+    const col = cellCol(i);
+    staticCoeffByCell[i] = letterMult[i] * (rowStaticWordBound[row] + colStaticWordBound[col]);
+  }
+
+  function estimateCheapUpperBound() {
+    staticCoeffBuckets.fill(0);
+    pointBuckets.fill(0);
+
+    let fixedContributionUpper = 0;
+    let maxCoeff = 0;
+
+    for (let i = 0; i < CELL_COUNT; i += 1) {
+      const v = board[i];
+      if (v === EMPTY) continue;
+
+      const coeff = staticCoeffByCell[i];
+      if (coeff > maxCoeff) maxCoeff = coeff;
+
+      if (isLetter(v)) {
+        fixedContributionUpper += LETTER_POINTS[v] * coeff;
+      } else if (v === UNASSIGNED) {
+        staticCoeffBuckets[coeff] += 1;
+      }
+    }
+
+    for (let li = 0; li < 26; li += 1) {
+      const cnt = counts[li];
+      if (cnt > 0) pointBuckets[LETTER_POINTS[li]] += cnt;
+    }
+
+    let optimisticRemaining = 0;
+    let coeffCursor = maxCoeff;
+
+    for (const pts of POINT_ORDER) {
+      let availableLetters = pointBuckets[pts];
+      while (availableLetters > 0) {
+        while (coeffCursor > 0 && staticCoeffBuckets[coeffCursor] === 0) {
+          coeffCursor -= 1;
+        }
+        if (coeffCursor <= 0) {
+          availableLetters = 0;
+          break;
+        }
+        optimisticRemaining += pts * coeffCursor;
+        staticCoeffBuckets[coeffCursor] -= 1;
+        availableLetters -= 1;
+      }
+    }
+
+    return fixedContributionUpper + optimisticRemaining;
   }
 
   function estimateUpperBound() {
@@ -557,20 +826,111 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
     return fixedContributionUpper + optimisticRemaining;
   }
 
-  function makeMemoKey(acrossNode, acrossLen) {
-    // Use base-36 tokens to keep key length compact.
-    let key = `${acrossNode.toString(36)}.${acrossLen.toString(36)}|`;
-    for (let c = 0; c < BOARD_SIZE; c += 1) {
-      key += `${downNodes[c].toString(36)}.${downLens[c].toString(36)}|`;
+  function buildMemoPackedCounts() {
+    let outIndex = 0;
+    for (let i = 0; i < 26; i += 3) {
+      const c0 = counts[i] & 0x1f;
+      const c1 = i + 1 < 26 ? counts[i + 1] & 0x1f : 0;
+      const c2 = i + 2 < 26 ? counts[i + 2] & 0x1f : 0;
+      memoPackedCounts[outIndex] = c0 | (c1 << 5) | (c2 << 10);
+      outIndex += 1;
     }
-    for (let li = 0; li < 26; li += 1) {
-      const cnt = counts[li];
-      if (cnt > 0) key += `${li.toString(36)}.${cnt.toString(36)},`;
-    }
-    return key;
   }
 
-  function evaluateFinalBoard() {
+  function memoHash(acrossNode, lensLo, lensHi) {
+    let h = 2166136261;
+    h ^= acrossNode;
+    h = Math.imul(h, 16777619);
+    h ^= lensLo;
+    h = Math.imul(h, 16777619);
+    h ^= lensHi;
+    h = Math.imul(h, 16777619);
+    for (let i = 0; i < BOARD_SIZE; i += 1) {
+      h ^= downNodes[i];
+      h = Math.imul(h, 16777619);
+    }
+    for (let i = 0; i < 9; i += 1) {
+      h ^= memoPackedCounts[i];
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+
+  function evaluateFinalBoardScoreOnly() {
+    let total = 0;
+
+    for (let row = 0; row < BOARD_SIZE; row += 1) {
+      let col = 0;
+      while (col < BOARD_SIZE) {
+        const start = cellIndex(row, col);
+        if (!isLetter(board[start])) {
+          col += 1;
+          continue;
+        }
+
+        let endCol = col;
+        while (endCol + 1 < BOARD_SIZE && isLetter(board[cellIndex(row, endCol + 1)])) {
+          endCol += 1;
+        }
+
+        const len = endCol - col + 1;
+        if (len >= MIN_WORD_LEN) {
+          let raw = 0;
+          let mult = 1;
+          let node = 0;
+          for (let c = col; c <= endCol; c += 1) {
+            const idx = cellIndex(row, c);
+            const li = board[idx];
+            node = trie.step(node, li);
+            if (node < 0) return null;
+            raw += LETTER_POINTS[li] * letterMult[idx];
+            mult *= wordMult[idx];
+          }
+          if (!trie.isWordNode(node)) return null;
+          total += raw * mult;
+        }
+        col = endCol + 1;
+      }
+    }
+
+    for (let col = 0; col < BOARD_SIZE; col += 1) {
+      let row = 0;
+      while (row < BOARD_SIZE) {
+        const start = cellIndex(row, col);
+        if (!isLetter(board[start])) {
+          row += 1;
+          continue;
+        }
+
+        let endRow = row;
+        while (endRow + 1 < BOARD_SIZE && isLetter(board[cellIndex(endRow + 1, col)])) {
+          endRow += 1;
+        }
+
+        const len = endRow - row + 1;
+        if (len >= MIN_WORD_LEN) {
+          let raw = 0;
+          let mult = 1;
+          let node = 0;
+          for (let r = row; r <= endRow; r += 1) {
+            const idx = cellIndex(r, col);
+            const li = board[idx];
+            node = trie.step(node, li);
+            if (node < 0) return null;
+            raw += LETTER_POINTS[li] * letterMult[idx];
+            mult *= wordMult[idx];
+          }
+          if (!trie.isWordNode(node)) return null;
+          total += raw * mult;
+        }
+        row = endRow + 1;
+      }
+    }
+
+    return total;
+  }
+
+  function evaluateFinalBoardDetailed() {
     let total = 0;
     const words = [];
 
@@ -660,29 +1020,38 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
   function dfs(cell, acrossNode, acrossLen) {
     if (timedOut) return;
 
-    const now = Date.now();
-    if (now > progress.deadline) {
-      timedOut = true;
-      timeoutReason = 'time';
-      return;
-    }
     if (progress.nodeLimit > 0 && explored >= progress.nodeLimit) {
       timedOut = true;
       timeoutReason = 'node';
       return;
     }
 
-    if (progress) {
+    explored += 1;
+    nodesSinceTimeCheck += 1;
+
+    if (progress && nodesSinceTimeCheck >= progress.timeCheckEveryNodes) {
+      nodesSinceTimeCheck = 0;
+      const now = Date.now();
+      if (now > progress.deadline) {
+        timedOut = true;
+        timeoutReason = 'time';
+        return;
+      }
       if (now - progress.lastLogAt >= progress.intervalMs) {
+        const intervalMs = now - progress.lastLogAt;
+        const intervalExplored = explored - progress.lastLogExplored;
+        const intervalRate = intervalMs > 0 ? Math.round((intervalExplored * 1000) / intervalMs) : 0;
+        const totalMs = now - progress.startedAt;
+        const totalRate = totalMs > 0 ? Math.round((explored * 1000) / totalMs) : 0;
         progress.lastLogAt = now;
+        progress.lastLogExplored = explored;
         console.log(
-          `[search] explored=${explored} best=${Number.isFinite(bestScore) ? bestScore : 'N/A'} ` +
-            `prunePrefix=${prunedPrefix} pruneWord=${prunedWord} pruneUpper=${prunedUpper} pruneMemo=${prunedMemo}`
+          `[search] explored=${explored} nodesPerSec=${intervalRate} totalNodesPerSec=${totalRate} ` +
+            `best=${Number.isFinite(bestScore) ? bestScore : 'N/A'} prunePrefix=${prunedPrefix} ` +
+            `pruneWord=${prunedWord} pruneUpper=${prunedUpper} pruneMemo=${prunedMemo}`
         );
       }
     }
-
-    explored += 1;
 
     if (progress && progress.debugBound && useUpperBound && (explored & 0xfffff) === 0) {
       const b = estimateUpperBound();
@@ -690,12 +1059,17 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
     }
 
     if (cell === CELL_COUNT) {
-      const evaluated = evaluateFinalBoard();
-      if (!evaluated) {
+      const total = evaluateFinalBoardScoreOnly();
+      if (total === null) {
         prunedWord += 1;
         return;
       }
-      if (evaluated.total > bestScore) {
+      if (total > bestScore) {
+        const evaluated = evaluateFinalBoardDetailed();
+        if (!evaluated) {
+          prunedWord += 1;
+          return;
+        }
         bestScore = evaluated.total;
         bestBoard = new Uint8Array(board);
         bestWords = evaluated.words;
@@ -717,44 +1091,48 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
         memoResets += 1;
       }
 
-      const memoKey = makeMemoKey(acrossNode, acrossLen);
+      buildMemoPackedCounts();
+      const lensLo =
+        (acrossLen & 0x7) |
+        ((downLens[0] & 0x7) << 3) |
+        ((downLens[1] & 0x7) << 6) |
+        ((downLens[2] & 0x7) << 9) |
+        ((downLens[3] & 0x7) << 12);
+      const lensHi = downLens[4] & 0x7;
+      const hash = memoHash(acrossNode, lensLo, lensHi);
       const memoForCell = memoByCell[cell];
-      const seenPlacedBase = memoForCell.get(memoKey);
+      const seenPlacedBase = memoForCell.get(hash, acrossNode, lensLo, lensHi, downNodes, memoPackedCounts);
       if (seenPlacedBase !== undefined && placedLetterBase <= seenPlacedBase) {
         prunedMemo += 1;
         memoHits += 1;
         return;
       }
-      if (seenPlacedBase === undefined) {
+      const isNew = memoForCell.set(hash, acrossNode, lensLo, lensHi, downNodes, memoPackedCounts, placedLetterBase);
+      if (isNew) {
         memoEntries += 1;
         memoStores += 1;
       }
-      memoForCell.set(memoKey, placedLetterBase);
     }
 
-    const letterOrder = letterOrderByMultiplier[letterMult[cell]] || letterOrderByMultiplier[1];
+    const prevDownNode = downNodes[col];
+    const prevDownLen = downLens[col];
+    const acrossMask = trie.childMask(acrossNode);
+    const downMask = trie.childMask(prevDownNode);
+    const candidatesMask = rackMask & acrossMask & downMask;
+    const cellImpact = letterMult[cell] * wordMult[cell];
+    const letterOrder = letterOrderByImpact[cellImpact] || letterOrderByImpact[1];
     for (let k = 0; k < letterOrder.length; k += 1) {
       const letter = letterOrder[k];
-      if (counts[letter] === 0) continue;
+      if ((candidatesMask & (1 << letter)) === 0) continue;
 
       const nextAcrossNode = trie.step(acrossNode, letter);
-      if (nextAcrossNode < 0) {
-        prunedPrefix += 1;
-        continue;
-      }
       const nextAcrossLen = acrossLen + 1;
       if (col === BOARD_SIZE - 1 && nextAcrossLen >= MIN_WORD_LEN && !trie.isWordNode(nextAcrossNode)) {
         prunedWord += 1;
         continue;
       }
 
-      const prevDownNode = downNodes[col];
-      const prevDownLen = downLens[col];
       const nextDownNode = trie.step(prevDownNode, letter);
-      if (nextDownNode < 0) {
-        prunedPrefix += 1;
-        continue;
-      }
       const nextDownLen = prevDownLen + 1;
       if (row === BOARD_SIZE - 1 && nextDownLen >= MIN_WORD_LEN && !trie.isWordNode(nextDownNode)) {
         prunedWord += 1;
@@ -762,7 +1140,9 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
       }
 
       board[cell] = letter;
+      const prevCount = counts[letter];
       counts[letter] -= 1;
+      if (prevCount === 1) rackMask &= ~(1 << letter);
       placedLetterBase += LETTER_POINTS[letter] * letterMult[cell];
       downNodes[col] = nextDownNode;
       downLens[col] = nextDownLen;
@@ -770,19 +1150,47 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
       if (!useUpperBound) {
         dfs(cell + 1, nextAcrossNode, nextAcrossLen);
       } else {
-        const bound = estimateUpperBound();
-        upperChecks += 1;
-        if (bound > bestScore) {
-          if (bound < minAcceptedUpperBound) minAcceptedUpperBound = bound;
+        if (cell < upperBoundMinCell) {
+          upperSkippedByCell += 1;
           dfs(cell + 1, nextAcrossNode, nextAcrossLen);
         } else {
-          prunedUpper += 1;
-          if (bound > maxPrunedUpperBound) maxPrunedUpperBound = bound;
+          upperChecks += 1;
+          if (useCheapUpperBound) {
+            const cheapBound = estimateCheapUpperBound();
+            if (cheapBound <= bestScore) {
+              prunedUpper += 1;
+              prunedUpperFast += 1;
+              if (cheapBound > maxPrunedUpperBound) maxPrunedUpperBound = cheapBound;
+            } else {
+              const bound = estimateUpperBound();
+              upperExactChecks += 1;
+              if (bound > bestScore) {
+                if (bound < minAcceptedUpperBound) minAcceptedUpperBound = bound;
+                dfs(cell + 1, nextAcrossNode, nextAcrossLen);
+              } else {
+                prunedUpper += 1;
+                prunedUpperExact += 1;
+                if (bound > maxPrunedUpperBound) maxPrunedUpperBound = bound;
+              }
+            }
+          } else {
+            const bound = estimateUpperBound();
+            upperExactChecks += 1;
+            if (bound > bestScore) {
+              if (bound < minAcceptedUpperBound) minAcceptedUpperBound = bound;
+              dfs(cell + 1, nextAcrossNode, nextAcrossLen);
+            } else {
+              prunedUpper += 1;
+              prunedUpperExact += 1;
+              if (bound > maxPrunedUpperBound) maxPrunedUpperBound = bound;
+            }
+          }
         }
       }
 
       downNodes[col] = prevDownNode;
       downLens[col] = prevDownLen;
+      if (counts[letter] === 0) rackMask |= 1 << letter;
       counts[letter] += 1;
       placedLetterBase -= LETTER_POINTS[letter] * letterMult[cell];
       board[cell] = UNASSIGNED;
@@ -790,8 +1198,6 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
       if (timedOut) return;
     }
 
-    const prevDownNode = downNodes[col];
-    const prevDownLen = downLens[col];
     if (
       (acrossLen < MIN_WORD_LEN || trie.isWordNode(acrossNode)) &&
       (prevDownLen < MIN_WORD_LEN || trie.isWordNode(prevDownNode))
@@ -803,14 +1209,41 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
       if (!useUpperBound) {
         dfs(cell + 1, 0, 0);
       } else {
-        const bound = estimateUpperBound();
-        upperChecks += 1;
-        if (bound > bestScore) {
-          if (bound < minAcceptedUpperBound) minAcceptedUpperBound = bound;
+        if (cell < upperBoundMinCell) {
+          upperSkippedByCell += 1;
           dfs(cell + 1, 0, 0);
         } else {
-          prunedUpper += 1;
-          if (bound > maxPrunedUpperBound) maxPrunedUpperBound = bound;
+          upperChecks += 1;
+          if (useCheapUpperBound) {
+            const cheapBound = estimateCheapUpperBound();
+            if (cheapBound <= bestScore) {
+              prunedUpper += 1;
+              prunedUpperFast += 1;
+              if (cheapBound > maxPrunedUpperBound) maxPrunedUpperBound = cheapBound;
+            } else {
+              const bound = estimateUpperBound();
+              upperExactChecks += 1;
+              if (bound > bestScore) {
+                if (bound < minAcceptedUpperBound) minAcceptedUpperBound = bound;
+                dfs(cell + 1, 0, 0);
+              } else {
+                prunedUpper += 1;
+                prunedUpperExact += 1;
+                if (bound > maxPrunedUpperBound) maxPrunedUpperBound = bound;
+              }
+            }
+          } else {
+            const bound = estimateUpperBound();
+            upperExactChecks += 1;
+            if (bound > bestScore) {
+              if (bound < minAcceptedUpperBound) minAcceptedUpperBound = bound;
+              dfs(cell + 1, 0, 0);
+            } else {
+              prunedUpper += 1;
+              prunedUpperExact += 1;
+              if (bound > maxPrunedUpperBound) maxPrunedUpperBound = bound;
+            }
+          }
         }
       }
 
@@ -824,9 +1257,13 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
 
   function solve() {
     const startedAt = Date.now();
+    nodesSinceTimeCheck = 0;
     progress = {
+      startedAt,
       lastLogAt: startedAt,
-      intervalMs: 3000,
+      lastLogExplored: 0,
+      intervalMs: progressIntervalMs,
+      timeCheckEveryNodes,
       debugBound: options.debugBound === true,
       deadline: startedAt + timeLimitMs,
       nodeLimit
@@ -854,10 +1291,18 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
       memoResets,
       memoSize: memoEntries,
       upperChecks,
+      upperExactChecks,
+      upperSkippedByCell,
       minAcceptedUpperBound: Number.isFinite(minAcceptedUpperBound) ? minAcceptedUpperBound : null,
       maxPrunedUpperBound: Number.isFinite(maxPrunedUpperBound) ? maxPrunedUpperBound : null,
+      prunedUpperFast,
+      prunedUpperExact,
+      useCheapUpperBound,
+      upperBoundMinCell,
       totalRackLetters,
-      durationMs: Date.now() - startedAt
+      durationMs: Date.now() - startedAt,
+      timeCheckEveryNodes,
+      progressIntervalMs
     };
   }
 
@@ -923,8 +1368,14 @@ async function main() {
 
     if (debugBound) {
       const pruneRate = result.upperChecks > 0 ? ((result.prunedUpper / result.upperChecks) * 100).toFixed(2) : '0.00';
+      const exactRate =
+        result.upperChecks > 0 ? ((result.upperExactChecks / result.upperChecks) * 100).toFixed(2) : '0.00';
       console.log(
-        `[bound] upperChecks=${result.upperChecks} pruned=${result.prunedUpper} pruneRate=${pruneRate}% ` +
+        `[bound] upperChecks=${result.upperChecks} upperExactChecks=${result.upperExactChecks} ` +
+          `exactRate=${exactRate}% pruned=${result.prunedUpper} pruneRate=${pruneRate}% ` +
+          `upperBoundMinCell=${result.upperBoundMinCell} upperSkippedByCell=${result.upperSkippedByCell} ` +
+          `useCheapUpperBound=${result.useCheapUpperBound} ` +
+          `prunedFast=${result.prunedUpperFast} prunedExact=${result.prunedUpperExact} ` +
           `maxPrunedBound=${result.maxPrunedUpperBound} minAcceptedBound=${result.minAcceptedUpperBound}`
       );
       console.log(
@@ -993,10 +1444,16 @@ async function main() {
     }
 
     console.log('[bot] search complete');
+    const avgNodesPerSec = result.durationMs > 0 ? Math.round((result.explored * 1000) / result.durationMs) : 0;
     console.log(
       `[bot] explored=${result.explored} durationMs=${result.durationMs} ` +
+        `avgNodesPerSec=${avgNodesPerSec} timeCheckEveryNodes=${result.timeCheckEveryNodes} ` +
+        `progressIntervalMs=${result.progressIntervalMs} useCheapUpperBound=${result.useCheapUpperBound} ` +
+        `upperBoundMinCell=${result.upperBoundMinCell} upperSkippedByCell=${result.upperSkippedByCell} ` +
         `prunePrefix=${result.prunedPrefix} pruneWord=${result.prunedWord} ` +
-        `pruneUpper=${result.prunedUpper} pruneMemo=${result.prunedMemo} ` +
+        `pruneUpper=${result.prunedUpper} pruneUpperFast=${result.prunedUpperFast} ` +
+        `pruneUpperExact=${result.prunedUpperExact} upperExactChecks=${result.upperExactChecks} ` +
+        `pruneMemo=${result.prunedMemo} ` +
         `memoSize=${result.memoSize} memoResets=${result.memoResets}`
     );
     console.log(
