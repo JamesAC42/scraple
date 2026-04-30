@@ -857,6 +857,8 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
   }
 
   function evaluateFinalBoardScoreOnly() {
+    if (!isLetterGraphConnected()) return null;
+
     let total = 0;
 
     for (let row = 0; row < BOARD_SIZE; row += 1) {
@@ -931,6 +933,8 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
   }
 
   function evaluateFinalBoardDetailed() {
+    if (!isLetterGraphConnected()) return null;
+
     let total = 0;
     const words = [];
 
@@ -1015,6 +1019,70 @@ function makeSolver({ letters, bonusCoords, trie, options = {} }) {
     }
 
     return { total, words };
+  }
+
+  function isLetterGraphConnected() {
+    let start = -1;
+    let letterCount = 0;
+    for (let i = 0; i < CELL_COUNT; i += 1) {
+      if (!isLetter(board[i])) continue;
+      if (start === -1) start = i;
+      letterCount += 1;
+    }
+
+    if (letterCount <= 1) return true;
+
+    const seen = new Uint8Array(CELL_COUNT);
+    const stack = new Uint8Array(CELL_COUNT);
+    let stackLen = 0;
+    let visited = 0;
+
+    stack[stackLen] = start;
+    stackLen += 1;
+    seen[start] = 1;
+
+    while (stackLen > 0) {
+      stackLen -= 1;
+      const current = stack[stackLen];
+      visited += 1;
+      const row = cellRow(current);
+      const col = cellCol(current);
+
+      if (row > 0) {
+        const up = current - BOARD_SIZE;
+        if (!seen[up] && isLetter(board[up])) {
+          seen[up] = 1;
+          stack[stackLen] = up;
+          stackLen += 1;
+        }
+      }
+      if (row + 1 < BOARD_SIZE) {
+        const down = current + BOARD_SIZE;
+        if (!seen[down] && isLetter(board[down])) {
+          seen[down] = 1;
+          stack[stackLen] = down;
+          stackLen += 1;
+        }
+      }
+      if (col > 0) {
+        const left = current - 1;
+        if (!seen[left] && isLetter(board[left])) {
+          seen[left] = 1;
+          stack[stackLen] = left;
+          stackLen += 1;
+        }
+      }
+      if (col + 1 < BOARD_SIZE) {
+        const right = current + 1;
+        if (!seen[right] && isLetter(board[right])) {
+          seen[right] = 1;
+          stack[stackLen] = right;
+          stackLen += 1;
+        }
+      }
+    }
+
+    return visited === letterCount;
   }
 
   function dfs(cell, acrossNode, acrossLen) {

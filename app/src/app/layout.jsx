@@ -54,7 +54,7 @@ export default function RootLayout({ children }) {
       </head>
       <body className={manrope.className}>
         <PopupProvider>
-          <script defer src="https://umami.ovel.sh/script.js" data-website-id="f4100034-0a28-434a-bd76-cd2ac77d5b39"></script>
+          <script defer src="https://umami.fukuin.dev/script.js" data-website-id="f4100034-0a28-434a-bd76-cd2ac77d5b39"></script>
           <ThemeWrapper>
             {children}
             <PopupContainer />
