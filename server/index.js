@@ -29,8 +29,11 @@ const {
 } = require('./controllers/leaderboard');
 
 // Create Redis client with configuration
+// REDIS_URL (e.g. redis://redis:6379 in Docker) wins; otherwise local Redis.
 const redisClient = createClient({
-  password: process.env.REDIS_PW || undefined,
+  ...(process.env.REDIS_URL
+    ? { url: process.env.REDIS_URL }
+    : { password: process.env.REDIS_PW || undefined }),
   socket: {
     reconnectStrategy: (retries) => {
       if (retries > 10) {
@@ -46,7 +49,7 @@ const redisClient = createClient({
 redisClient.on('error', (err) => console.error('Redis Client Error:', err));
 redisClient.on('connect', () => console.log('Redis Client Connected'));
 
-const PORT = 5677;
+const PORT = Number(process.env.PORT) || 5677;
 
 app.use(cors({
   origin: process.env.LOCAL === 'true' ? 'http://localhost:3001' : 'https://scraple.io',
