@@ -1,0 +1,68 @@
+name: Deploy (Docker)
+
+# Builds the image in CI, pushes it to GHCR, and has the sites server pull and
+# run it (sites-entry.sh in the hanbok repo's deploy/sites/). Active once the
+# repository variable DEPLOY_MODE is "docker".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+
+concurrency:
+  group: scraple-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    if: vars.DEPLOY_MODE == 'docker' && (github.event_name == 'push' || inputs.action == 'deploy')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/jamesac42/scraple:${{ github.sha }}
+            ghcr.io/jamesac42/scraple:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
+    if: always() && vars.DEPLOY_MODE == 'docker' && (needs.build.result == 'success' || inputs.action == 'rollback')
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - name: Configure SSH
+        env:
+          SITES_SSH_KEY: ${{ secrets.SITES_SSH_KEY }}
+          SITES_KNOWN_HOSTS: ${{ secrets.SITES_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SITES_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$SITES_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+      - name: Deploy
+        env:
+          SITES_HOST: ${{ vars.SITES_HOST }}
+          COMMAND: ${{ needs.build.result == 'success' && format('deploy scraple {0}', github.sha) || 'rollback scraple' }}
+        run: ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes "deploy@$SITES_HOST" "$COMMAND"
